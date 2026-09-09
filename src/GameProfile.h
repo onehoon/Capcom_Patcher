@@ -36,6 +36,10 @@ struct GameProfile
 // GameId::Unsupported. Intended for the runtime path and for unit checks.
 GameProfile Resolve(std::wstring_view executableFileName);
 
+// Loader-lock-safe resolution for use from DllMain: no std::filesystem, no heap
+// allocation, ASCII case fold. Shares the one canonical table with Resolve().
+GameId ResolveCurrentProcessEarly() noexcept;
+
 // Profile for the current process, resolved once from the host executable name.
 const GameProfile& Current();
 } // namespace game_profile
