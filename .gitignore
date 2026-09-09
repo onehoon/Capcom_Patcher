@@ -1,0 +1,25 @@
+# Visual Studio / MSBuild build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+.vs/
+
+# User-specific project files
+*.user
+*.suo
+
+# Build artifacts
+*.obj
+*.pch
+*.ipch
+*.ilk
+*.pdb
+*.idb
+*.log
+*.tlog
+*.lastbuildstate
+*.asi
+*.exp
+*.lib
