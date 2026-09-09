@@ -198,15 +198,23 @@ inline constexpr size_t kMethodEncodedOffset = 0x8;
 
 inline constexpr size_t kMethodImplNameOffset = 0x8;
 
-// Smallest (1<<n)-1 that covers `poolSize`, matching
-// RETypeDB::get_string_pool_bitmask().
+// (next power of two >= poolSize) - 1, matching RETypeDB::get_string_pool_bitmask()
+// upstream:  uint32_t out{1}; while (out < size) out <<= 1; return out - 1;
 inline uint32_t StringPoolBitmask(uint32_t poolSize) noexcept
 {
-    uint32_t out = 0;
-    while (out < poolSize && out != 0xFFFFFFFFu)
+    if (poolSize == 0)
     {
-        out = (out << 1) | 1u;
+        return 0;
     }
-    return out;
+    uint32_t out = 1;
+    while (out < poolSize)
+    {
+        if (out > (0xFFFFFFFFu >> 1))
+        {
+            return 0xFFFFFFFFu;
+        }
+        out <<= 1;
+    }
+    return out - 1;
 }
 } // namespace reengine::re_tdb
