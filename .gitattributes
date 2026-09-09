@@ -1,2 +1,4 @@
-# Keep vendored third-party sources byte-for-byte as upstream.
-third_party/minhook/** -text
+# Keep vendored third-party sources byte-for-byte as upstream, and exclude them
+# from whitespace checks (`git diff --check`, apply --whitespace).
+third_party/minhook/**   -text -whitespace
+third_party/bddisasm/**  -text -whitespace

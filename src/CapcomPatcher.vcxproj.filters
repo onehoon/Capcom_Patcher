@@ -22,6 +22,15 @@
     <Filter Include="third_party\minhook">
       <UniqueIdentifier>{a1b2c3d4-0005-4000-8000-000000000005}</UniqueIdentifier>
     </Filter>
+    <Filter Include="third_party\bddisasm">
+      <UniqueIdentifier>{a1b2c3d4-0008-4000-8000-000000000008}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\memory">
+      <UniqueIdentifier>{a1b2c3d4-0006-4000-8000-000000000006}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\memory">
+      <UniqueIdentifier>{a1b2c3d4-0007-4000-8000-000000000007}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -44,6 +53,18 @@
     </ClInclude>
     <ClInclude Include="antitamper\RuntimeGuards.h">
       <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="antitamper\DD2FamilyBypass.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="memory\MemoryScan.h">
+      <Filter>Header Files\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="memory\MemoryPatch.h">
+      <Filter>Header Files\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="memory\ThreadSuspension.h">
+      <Filter>Header Files\memory</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -68,6 +89,18 @@
     <ClCompile Include="antitamper\RuntimeGuards.cpp">
       <Filter>Source Files\antitamper</Filter>
     </ClCompile>
+    <ClCompile Include="antitamper\DD2FamilyBypass.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="memory\MemoryScan.cpp">
+      <Filter>Source Files\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="memory\MemoryPatch.cpp">
+      <Filter>Source Files\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="memory\ThreadSuspension.cpp">
+      <Filter>Source Files\memory</Filter>
+    </ClCompile>
     <ClCompile Include="..\third_party\minhook\src\buffer.c">
       <Filter>third_party\minhook</Filter>
     </ClCompile>
@@ -79,6 +112,12 @@
     </ClCompile>
     <ClCompile Include="..\third_party\minhook\src\hde\hde64.c">
       <Filter>third_party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\bddisasm\bddisasm\bddisasm.c">
+      <Filter>third_party\bddisasm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\bddisasm\bddisasm\crt.c">
+      <Filter>third_party\bddisasm</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

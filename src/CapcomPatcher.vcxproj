@@ -61,7 +61,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -81,7 +81,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -97,8 +97,12 @@
     <ClInclude Include="Util.h" />
     <ClInclude Include="GameProfile.h" />
     <ClInclude Include="hooking\MinHookInlineHook.h" />
+    <ClInclude Include="memory\MemoryScan.h" />
+    <ClInclude Include="memory\MemoryPatch.h" />
+    <ClInclude Include="memory\ThreadSuspension.h" />
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h" />
     <ClInclude Include="antitamper\RuntimeGuards.h" />
+    <ClInclude Include="antitamper\DD2FamilyBypass.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -109,8 +113,12 @@
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="GameProfile.cpp" />
     <ClCompile Include="hooking\MinHookInlineHook.cpp" />
+    <ClCompile Include="memory\MemoryScan.cpp" />
+    <ClCompile Include="memory\MemoryPatch.cpp" />
+    <ClCompile Include="memory\ThreadSuspension.cpp" />
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp" />
     <ClCompile Include="antitamper\RuntimeGuards.cpp" />
+    <ClCompile Include="antitamper\DD2FamilyBypass.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- Vendored MinHook (TsudaKageyu/minhook @ 98b74f1). Compiled as C, no PCH,
@@ -142,6 +150,26 @@
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored bddisasm decoder (bitdefender/bddisasm @ 70db095). Compiled as
+         C, no PCH, warnings off; see third_party/bddisasm/PINNED_REVISION.md. -->
+    <ClCompile Include="..\third_party\bddisasm\bddisasm\bddisasm.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+      <PreprocessorDefinitions>BDDISASM_HAS_MEMSET;BDDISASM_NO_FORMAT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile Include="..\third_party\bddisasm\bddisasm\crt.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+      <PreprocessorDefinitions>BDDISASM_HAS_MEMSET;BDDISASM_NO_FORMAT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
