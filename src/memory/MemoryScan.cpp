@@ -211,16 +211,17 @@ std::optional<uintptr_t> FunctionStartImpl(uintptr_t addr, bool followChain) noe
     return static_cast<uintptr_t>(imageBase) + function->BeginAddress;
 }
 
-// ---- instruction stepping (vendored HDE64) ---------------------------
+// ---- instruction decoding (vendored HDE64) --------------------------
 
-size_t InstructionLength(uintptr_t ip) noexcept
+// Decode at `ip`; returns length (0 on error) and fills `hs`.
+size_t DecodeAt(uintptr_t ip, hde64s& hs) noexcept
 {
     uint8_t bytes[32]{};
     if (!SafeRead(reinterpret_cast<const void*>(ip), bytes, sizeof(bytes)))
     {
         return 0;
     }
-    hde64s hs{};
+    hs = hde64s{};
     const unsigned int len = hde64_disasm(bytes, &hs);
     if ((hs.flags & F_ERROR) != 0 || len == 0)
     {
@@ -229,12 +230,63 @@ size_t InstructionLength(uintptr_t ip) noexcept
     return len;
 }
 
+size_t InstructionLength(uintptr_t ip) noexcept
+{
+    hde64s hs{};
+    return DecodeAt(ip, hs);
+}
+
 bool IsTerminatorOpcode(uint8_t opcode) noexcept
 {
     return opcode == 0xC3 || opcode == 0xC2 || opcode == 0xCB || opcode == 0xCA || opcode == 0xCC;
 }
 
-// Scan [start, start+length-4] for a rel32 whose absolute target == `target`.
+size_t ImmediateBytes(const hde64s& hs) noexcept
+{
+    if (hs.flags & F_IMM64) return 8;
+    if (hs.flags & F_IMM32) return 4;
+    if (hs.flags & F_IMM16) return 2;
+    if (hs.flags & F_IMM8) return 1;
+    return 0;
+}
+
+// Instruction-validity gate: is `dispAddr` the exact location of a real decoded
+// 4-byte operand (RIP-relative disp32 memory operand, or a rel32 branch) of an
+// instruction that starts within 15 bytes before it? Rejects raw byte-window
+// coincidences that Kananlib's decoder-backed scan would filter out.
+bool IsDecodedOperandAt(uintptr_t dispAddr) noexcept
+{
+    for (size_t k = 1; k <= 15; ++k)
+    {
+        const uintptr_t start = dispAddr - k;
+        hde64s hs{};
+        const size_t len = DecodeAt(start, hs);
+        if (len == 0 || start + len < dispAddr + 4)
+        {
+            continue;
+        }
+
+        // rel32 branch / call: E8, E9, or 0F 8x (jcc rel32). rel32 is last.
+        if ((hs.flags & F_RELATIVE) != 0 && (hs.flags & F_IMM32) != 0 && start + len - 4 == dispAddr)
+        {
+            return true;
+        }
+
+        // RIP-relative memory operand: modrm mod=00 rm=101, F_DISP32 set.
+        if ((hs.flags & F_DISP32) != 0 && hs.modrm_mod == 0 && hs.modrm_rm == 5)
+        {
+            const size_t dispPos = len - 4 - ImmediateBytes(hs);
+            if (start + dispPos == dispAddr)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Scan [start, start+length-4] for a rel32/disp32 whose absolute target ==
+// `target` that is also a real decoded instruction operand.
 std::optional<uintptr_t> RelReferenceScalar(uintptr_t start, size_t length, uintptr_t target,
                                             const std::function<bool(uintptr_t)>& filter)
 {
@@ -276,13 +328,50 @@ std::optional<uintptr_t> RelReferenceScalar(uintptr_t start, size_t length, uint
         {
             return std::nullopt;
         }
-        if (!filter || filter(found))
+        if (IsDecodedOperandAt(found) && (!filter || filter(found)))
         {
             return found;
         }
-        addr = found + 1; // keep scanning past a filtered-out candidate
+        addr = found + 1; // keep scanning past a rejected candidate
     }
     return std::nullopt;
+}
+
+// Signed rel operand value of a direct jump, plus its kind.
+struct DirectJump
+{
+    bool isJump{false};
+    bool unconditional{false};
+    uintptr_t target{};
+};
+
+DirectJump ClassifyJump(uintptr_t ip, const hde64s& hs, size_t len) noexcept
+{
+    DirectJump out{};
+    const uint8_t op = hs.opcode;
+    int64_t rel = 0;
+
+    if (op == 0xEB) // jmp rel8
+    {
+        rel = static_cast<int8_t>(hs.imm.imm8);
+        out = {true, true, ip + len + static_cast<uintptr_t>(rel)};
+    }
+    else if (op == 0xE9) // jmp rel32
+    {
+        rel = static_cast<int32_t>(hs.imm.imm32);
+        out = {true, true, ip + len + static_cast<uintptr_t>(rel)};
+    }
+    else if (op >= 0x70 && op <= 0x7F) // jcc rel8
+    {
+        rel = static_cast<int8_t>(hs.imm.imm8);
+        out = {true, false, ip + len + static_cast<uintptr_t>(rel)};
+    }
+    else if (op == 0x0F && hs.opcode2 >= 0x80 && hs.opcode2 <= 0x8F) // jcc rel32
+    {
+        rel = static_cast<int32_t>(hs.imm.imm32);
+        out = {true, false, ip + len + static_cast<uintptr_t>(rel)};
+    }
+    return out;
 }
 } // namespace
 
@@ -414,26 +503,67 @@ std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::st
         return std::nullopt;
     }
 
-    const uintptr_t end = ip + maxSize;
-    uintptr_t cursor = ip;
-    while (cursor < end)
-    {
-        if (ScanParsed(cursor, parsed.size(), parsed) == cursor)
-        {
-            return cursor;
-        }
+    // Bounded control-flow walk (approximation of Kananlib's exhaustive_decode):
+    // follow direct unconditional jumps, queue conditional-branch targets, stop
+    // at ret / int3 / decode error. Pattern is only matched at instruction
+    // boundaries, never in bytes unreachable after an unconditional jump.
+    const uintptr_t lo = ip;
+    const uintptr_t hi = ip + maxSize;
+    std::vector<uintptr_t> worklist{ip};
+    std::vector<uintptr_t> visited;
+    size_t budget = 4096;
 
-        uint8_t opcode = 0;
-        if (!SafeReadT(cursor, opcode) || IsTerminatorOpcode(opcode))
+    while (!worklist.empty() && budget-- > 0)
+    {
+        uintptr_t cursor = worklist.back();
+        worklist.pop_back();
+
+        while (cursor >= lo && cursor < hi && budget-- > 0)
         {
-            break;
+            if (std::find(visited.begin(), visited.end(), cursor) != visited.end())
+            {
+                break;
+            }
+            visited.push_back(cursor);
+
+            if (ScanParsed(cursor, parsed.size(), parsed) == cursor)
+            {
+                return cursor;
+            }
+
+            uint8_t opcode = 0;
+            if (!SafeReadT(cursor, opcode) || IsTerminatorOpcode(opcode))
+            {
+                break;
+            }
+
+            hde64s hs{};
+            const size_t len = DecodeAt(cursor, hs);
+            if (len == 0)
+            {
+                break;
+            }
+
+            const DirectJump jump = ClassifyJump(cursor, hs, len);
+            if (jump.isJump)
+            {
+                if (!jump.unconditional && jump.target >= lo && jump.target < hi)
+                {
+                    worklist.push_back(jump.target);
+                }
+                if (jump.unconditional)
+                {
+                    if (jump.target >= lo && jump.target < hi)
+                    {
+                        cursor = jump.target;
+                        continue;
+                    }
+                    break; // unconditional jump out of the window
+                }
+            }
+
+            cursor += len;
         }
-        const size_t len = InstructionLength(cursor);
-        if (len == 0)
-        {
-            break;
-        }
-        cursor += len;
     }
     return std::nullopt;
 }

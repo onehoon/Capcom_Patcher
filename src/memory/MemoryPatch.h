@@ -25,6 +25,11 @@ struct BytePatchCandidate
     size_t writeOffset{};             // offset within `expected` to overwrite
     std::vector<uint8_t> replacement; // bytes written at address + writeOffset
     const char* name{"patch"};
+
+    // Extra final validations performed immediately before the write (while
+    // other threads are suspended), not relied on from discovery-time state.
+    bool requireExecutable{false};          // target must be committed PAGE_EXECUTE*
+    bool requireUnwindFunctionStart{false}; // FindFunctionStartUnwind(address) == address
 };
 
 enum class PatchOutcome

@@ -38,6 +38,38 @@ bool RangeIsCommitted(uintptr_t address, size_t size) noexcept
     return true;
 }
 
+bool RangeIsExecutable(uintptr_t address, size_t size) noexcept
+{
+    if (address == 0 || size == 0 || size > (UINTPTR_MAX - address))
+    {
+        return false;
+    }
+
+    uintptr_t cursor = address;
+    const uintptr_t end = address + size;
+    while (cursor < end)
+    {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(reinterpret_cast<LPCVOID>(cursor), &mbi, sizeof(mbi)) != sizeof(mbi) ||
+            mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
+        {
+            return false;
+        }
+        switch (mbi.Protect & 0xFF)
+        {
+        case PAGE_EXECUTE:
+        case PAGE_EXECUTE_READ:
+        case PAGE_EXECUTE_READWRITE:
+        case PAGE_EXECUTE_WRITECOPY:
+            break;
+        default:
+            return false;
+        }
+        cursor = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+    }
+    return true;
+}
+
 bool SafeCompare(const void* address, const uint8_t* expected, size_t size) noexcept
 {
     __try
@@ -138,6 +170,22 @@ PatchOutcome CommitPatch(const BytePatchCandidate& candidate) noexcept
     {
         Log("[CapcomPatcher][MemoryPatch] expected bytes changed; skipped");
         return PatchOutcome::Skipped;
+    }
+
+    // Extra final validations, immediately before the write.
+    if (candidate.requireExecutable && !RangeIsExecutable(candidate.address, candidate.expected.size()))
+    {
+        Log("[CapcomPatcher][MemoryPatch] target not executable; skipped");
+        return PatchOutcome::Skipped;
+    }
+    if (candidate.requireUnwindFunctionStart)
+    {
+        const auto start = FindFunctionStartUnwind(candidate.address);
+        if (!start || *start != candidate.address)
+        {
+            Log("[CapcomPatcher][MemoryPatch] function-start revalidation failed; skipped");
+            return PatchOutcome::Skipped;
+        }
     }
 
     return WriteBytes(reinterpret_cast<void*>(writeAddr),

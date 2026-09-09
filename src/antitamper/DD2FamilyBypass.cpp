@@ -41,7 +41,7 @@ using CreateBlasFn = void* (*)(void*, void*, void*, void*, void*);
 
 std::unique_ptr<hooking::MinHookInlineHook> g_createBlasHook;
 uint32_t* g_corruptionWhenZero{};
-std::atomic<uint32_t> g_lastNonZeroCorruption{0};
+std::atomic<uint32_t> g_lastNonZeroCorruption{detail::kDefaultCorruptionValue};
 std::atomic<bool> g_restoreAnnounced{false};
 std::atomic<bool> g_faultAnnounced{false};
 
@@ -53,13 +53,13 @@ void* CreateBlasHook(void* a1, void* a2, void* a3, void* a4, void* a5)
         uint32_t value = 0;
         if (memory::TryReadBytes(reinterpret_cast<uintptr_t>(ptr), &value, sizeof(value)))
         {
-            if (value == 0)
+            const auto action = detail::DecideCorruption(value, g_lastNonZeroCorruption.load());
+            if (action.restore)
             {
-                const uint32_t restore = g_lastNonZeroCorruption.load();
                 bool wrote = true;
                 __try
                 {
-                    *ptr = restore;
+                    *ptr = action.writeValue;
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
                 {
@@ -69,14 +69,14 @@ void* CreateBlasHook(void* a1, void* a2, void* a3, void* a4, void* a5)
                 {
                     Log("[CapcomPatcher][DD2Family][createBLAS] runtime corruption restored (corruption_when_zero)");
                 }
-                if (wrote && memory::TryReadBytes(reinterpret_cast<uintptr_t>(ptr), &value, sizeof(value)))
+                if (wrote)
                 {
-                    g_lastNonZeroCorruption.store(value);
+                    g_lastNonZeroCorruption.store(action.newLastNonZero);
                 }
             }
             else
             {
-                g_lastNonZeroCorruption.store(value);
+                g_lastNonZeroCorruption.store(action.newLastNonZero);
             }
         }
         else if (!g_faultAnnounced.exchange(true))
@@ -114,25 +114,28 @@ void DiscoverScannerCrasher(const memory::ModuleRange& game, std::vector<memory:
     }
     Logf("[CapcomPatcher][DD2Family][MHW] crasher_fn @ +0x%llX", static_cast<unsigned long long>(*crasherFn - game.base));
 
-    // Resolve the "real" crasher reference (skip a preceding E9 thunk).
-    uintptr_t crasherRef = *crasherFn;
+    // Resolve the scanner-search target. Fail closed on the E9-thunk path:
+    // once the E9 case is selected, the target is find_function_start(ref-1) or
+    // nothing - never a silent fallback to crasher_fn (upstream behaviour).
+    std::optional<uintptr_t> scannerTarget{*crasherFn};
     if (const auto ref = memory::ScanDisplacementReference(game, *crasherFn))
     {
         uint8_t prev = 0;
         if (memory::TryReadBytes(*ref - 1, &prev, 1) && prev == 0xE9)
         {
-            if (const auto start = memory::FindFunctionStart(*ref - 1))
+            scannerTarget = memory::FindFunctionStart(*ref - 1);
+            if (!scannerTarget)
             {
-                crasherRef = *start;
+                Log("[CapcomPatcher][DD2Family][MHW] E9 thunk owner not resolved; scanner RET sub-layer skipped");
             }
         }
     }
 
-    // scanner_fn_middle: a rel32 E8 call to crasherRef.
-    if (game.size > 0x1000)
+    // scanner_fn_middle: a rel32 E8 call to the resolved target.
+    if (scannerTarget && game.size > 0x1000)
     {
         const auto scannerMiddle = memory::ScanRelativeReferenceScalar(
-            game.base, game.size - 0x1000, crasherRef, [](uintptr_t addr) {
+            game.base, game.size - 0x1000, *scannerTarget, [](uintptr_t addr) {
                 uint8_t op = 0;
                 return memory::TryReadBytes(addr - 1, &op, 1) && op == 0xE8;
             });
@@ -151,6 +154,8 @@ void DiscoverScannerCrasher(const memory::ModuleRange& game, std::vector<memory:
                     c.writeOffset = 0;
                     c.replacement = {0xC3}; // ret
                     c.name = "scanner_fn RET";
+                    c.requireExecutable = true;
+                    c.requireUnwindFunctionStart = true;
                     out.push_back(std::move(c));
                     Logf("[CapcomPatcher][DD2Family][MHW] scanner_fn candidate @ +0x%llX",
                          static_cast<unsigned long long>(*scannerFn - game.base));
@@ -180,6 +185,7 @@ void DiscoverScannerCrasher(const memory::ModuleRange& game, std::vector<memory:
             c.writeOffset = 3;
             c.replacement = {0xEB}; // jz -> jmp short
             c.name = "crasher JZ->JMP";
+            c.requireExecutable = true;
             out.push_back(std::move(c));
             Logf("[CapcomPatcher][DD2Family][MHW] crasher cmp/jz candidate @ +0x%llX",
                  static_cast<unsigned long long>(*cmpJz - game.base));
@@ -211,6 +217,7 @@ void DiscoverConstants(const memory::ModuleRange& game, std::vector<memory::Byte
             c.writeOffset = 2;
             c.replacement = {0xEF, 0xBE, 0x37, 0x13}; // 0x1337BEEF, little-endian
             c.name = "dd2 sus_constant";
+            c.requireExecutable = true;
             out.push_back(std::move(c));
             ++found;
         }
