@@ -5,6 +5,7 @@
 #include "GameProfile.h"
 #include "antitamper/DD2FamilyBypass.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
+#include "antitamper/PeHeaderIntegrityBypass.h"
 #include "antitamper/RE9FamilyBypass.h"
 #include "antitamper/RendererHeartbeatBypass.h"
 #include "antitamper/RuntimeGuards.h"
@@ -62,6 +63,8 @@ extern "C" __declspec(dllexport) void InitializeASI()
     if (profile.re9Family)
     {
         antitamper::re9_family::Initialize(profile);
+        // RE9-family PE-header integrity-check redirection (one-shot, fail-closed).
+        antitamper::pe_header::Initialize(profile);
     }
 
     // Standalone renderer heartbeat synchronization (TDB82/83 five-game set;

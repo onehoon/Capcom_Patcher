@@ -81,9 +81,25 @@ never used as an automatic opt-in for future Capcom games.
   and confirmed clusters are sentinel/renderer-revalidated every sync. PE-header
   redirection, stack-destroyer and module-path layers are **not** included.
 
+- **PR5** — the RE9-family PE-header integrity-check redirection from REFramework
+  `IntegrityCheckBypass::immediate_patch_re9()` (PE-header section). Finds the
+  validated integrity path via the `4C 89 ? 24 40 00 00 00 41 ?` anchor + the
+  ordered `[+0x20] -> [+0x28] -> [rsp+0x90]` structural discriminator, proves the
+  anchor / anchor+10 instruction boundaries, then emulates 15 instructions
+  (vendored **BDShemu**, same bddisasm pin — analysis only, no game-memory
+  writes) to learn which GPR receives the live image base and how many whole
+  bytes to replace. It keeps a process-lifetime RW copy of the first PE-header
+  page and rewrites the image-base computation with `movabs <that GPR>, <copy>`
+  + NOPs, so the integrity reader sees the preserved header. Five `re9Family`
+  games (never MHW), one-shot at startup, fail-closed (no candidate = no-op),
+  committed through the PR2 `BytePatchCandidate` / thread-suspension path with
+  full under-suspension revalidation. `src/memory/Emulation.*` adapts
+  `cursey/kananlib@8c27b65` `utility::emulate`. Stack-destroyer and module-path
+  layers are **not** included.
+
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
-layers — PE-header integrity redirection, stack-destroyer scan, module-path
-spoofing — are deferred to later PRs as described in
+layers — stack-destroyer mitigation, module-path spoofing review — are deferred
+to later PRs as described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build

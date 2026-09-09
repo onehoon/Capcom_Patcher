@@ -162,6 +162,12 @@ PR3 additionally adapts the `*[N]` multi-segment glob behavior of kananlib
 `src/Pattern.cpp` / `include/utility/Pattern.hpp` (same pin) into
 `memory::Scan`.
 
+PR5 adapts `include/utility/Emulation.hpp` / `src/Emulation.cpp` (same
+`8c27b65` pin) — the BDShemu setup and single-step callback loop of
+`utility::emulate` — into `src/memory/Emulation.cpp`, used only to discover which
+GPR an RE9-family PE-header integrity check loads the live image base into. No
+kananlib source is vendored.
+
 ```
 Boost Software License - Version 1.0 - August 17th, 2003
 
@@ -194,9 +200,13 @@ DEALINGS IN THE SOFTWARE.
 
 x86-64 instruction decoder used by the PR2 DD2-family scan helpers
 (`src/memory/MemoryScan.cpp`), so they have the same VEX/EVEX/XOP coverage as the
-pinned REFramework path. Vendored under `third_party/bddisasm/` (decoder only, no
-formatter/emulator) at the exact revision `praydog/REFramework@b6baf6b` uses:
-`70db095765ab2066dd88dfb7bbcc42259ed167c5`. Sources are unmodified.
+pinned REFramework path. Vendored under `third_party/bddisasm/` at the exact
+revision `praydog/REFramework@b6baf6b` uses:
+`70db095765ab2066dd88dfb7bbcc42259ed167c5`. Sources are unmodified. PR5 adds the
+**BDShemu emulator** (`bdshemu/bdshemu.c` + `inc/bdshemu.h`) from the same pinned
+revision — the same emulator `cursey/kananlib@8c27b65` uses — for PR5 PE-header
+image-base register discovery (`src/memory/Emulation.cpp`). The instruction-text
+formatter (`bdformat.c`) and language bindings are still not vendored.
 Full text: `third_party/bddisasm/LICENSE`.
 
 ```

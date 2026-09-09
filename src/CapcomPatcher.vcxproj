@@ -100,11 +100,13 @@
     <ClInclude Include="memory\MemoryScan.h" />
     <ClInclude Include="memory\MemoryPatch.h" />
     <ClInclude Include="memory\ThreadSuspension.h" />
+    <ClInclude Include="memory\Emulation.h" />
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h" />
     <ClInclude Include="antitamper\RuntimeGuards.h" />
     <ClInclude Include="antitamper\DD2FamilyBypass.h" />
     <ClInclude Include="antitamper\RE9FamilyBypass.h" />
     <ClInclude Include="antitamper\RendererHeartbeatBypass.h" />
+    <ClInclude Include="antitamper\PeHeaderIntegrityBypass.h" />
     <ClInclude Include="reengine\MinimalReTdb.h" />
     <ClInclude Include="reengine\RendererBridge.h" />
   </ItemGroup>
@@ -120,6 +122,7 @@
     <ClCompile Include="memory\MemoryScan.cpp" />
     <ClCompile Include="memory\MemoryPatch.cpp" />
     <ClCompile Include="memory\ThreadSuspension.cpp" />
+    <ClCompile Include="memory\Emulation.cpp" />
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp" />
     <ClCompile Include="antitamper\RuntimeGuards.cpp" />
     <ClCompile Include="antitamper\DD2FamilyBypass.cpp" />
@@ -131,6 +134,7 @@
     </ClCompile>
     <ClCompile Include="reengine\RendererBridge.cpp" />
     <ClCompile Include="antitamper\RendererHeartbeatBypass.cpp" />
+    <ClCompile Include="antitamper\PeHeaderIntegrityBypass.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- Vendored SafetyHook (cursey/safetyhook @ b046e123, Windows x64 only).
@@ -242,6 +246,16 @@
       <PreprocessorDefinitions>BDDISASM_HAS_MEMSET;BDDISASM_NO_FORMAT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="..\third_party\bddisasm\bddisasm\crt.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+      <PreprocessorDefinitions>BDDISASM_HAS_MEMSET;BDDISASM_NO_FORMAT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <!-- BDShemu emulator from the same bddisasm pin (70db095); used only by
+         src/memory/Emulation.cpp for PR5 PE-header image-base register discovery. -->
+    <ClCompile Include="..\third_party\bddisasm\bdshemu\bdshemu.c">
       <CompileAs>CompileAsC</CompileAs>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
