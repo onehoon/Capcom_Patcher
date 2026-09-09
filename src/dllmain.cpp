@@ -5,13 +5,10 @@
 #include "GameProfile.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
 
-#include <atomic>
 #include <cstdio>
 
 namespace
 {
-std::atomic<bool> g_initialized{false};
-
 void Log(const char* message)
 {
     OutputDebugStringA(message);
@@ -28,14 +25,11 @@ extern "C" __declspec(dllexport) bool PatchResult()
 }
 
 // OptiScaler calls this after loading the .asi module. It is the PR0 activation
-// point.
+// point. Each anti-tamper component owns its own idempotency
+// (antitamper::dbg_ui::Initialize() serializes on a mutex and no-ops once the
+// watcher is running), so this entry point stays a thin dispatcher.
 extern "C" __declspec(dllexport) void InitializeASI()
 {
-    if (g_initialized.exchange(true))
-    {
-        return;
-    }
-
     const auto& profile = game_profile::Current();
     if (profile.id == game_profile::GameId::Unsupported)
     {
