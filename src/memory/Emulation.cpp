@@ -49,27 +49,46 @@ namespace
 constexpr int kNdrGpr[16] = {NDR_RAX, NDR_RCX, NDR_RDX, NDR_RBX, NDR_RSP, NDR_RBP, NDR_RSI, NDR_RDI,
                              NDR_R8,  NDR_R9,  NDR_R10, NDR_R11, NDR_R12, NDR_R13, NDR_R14, NDR_R15};
 
-ND_BOOL ShemuAccessMemory(void* /*ctx*/, ND_UINT64 gla, ND_SIZET size, ND_UINT8* buffer, ND_BOOL store) noexcept
+struct AccessState
+{
+    bool invalidLoad{false};
+};
+
+// SEH-isolated copy so __try/__except does not sit in a function with C++
+// object unwinding.
+bool GuardedCopy(void* dst, const void* src, size_t size) noexcept
+{
+    __try
+    {
+        std::memcpy(dst, src, size);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+ND_BOOL ShemuAccessMemory(void* rawCtx, ND_UINT64 gla, ND_SIZET size, ND_UINT8* buffer, ND_BOOL store) noexcept
 {
     if (store)
     {
         // Analysis only: never write real game memory. Pretend it worked.
         return ND_TRUE;
     }
-    if (buffer != nullptr && size != 0)
+
+    auto* shemu = static_cast<SHEMU_CONTEXT*>(rawCtx);
+    auto* state = shemu != nullptr ? static_cast<AccessState*>(shemu->AuxData) : nullptr;
+
+    if (buffer == nullptr || size == 0 || !memory::IsReadable(static_cast<uintptr_t>(gla), size) ||
+        !GuardedCopy(buffer, reinterpret_cast<const void*>(static_cast<uintptr_t>(gla)), size))
     {
-        std::memset(buffer, 0, size);
-        if (memory::IsReadable(static_cast<uintptr_t>(gla), size))
+        // An invalid external load must stop emulation, not synthesize zero data.
+        if (state != nullptr)
         {
-            __try
-            {
-                std::memcpy(buffer, reinterpret_cast<const void*>(gla), size);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                std::memset(buffer, 0, size);
-            }
+            state->invalidLoad = true;
         }
+        return ND_FALSE;
     }
     return ND_TRUE;
 }
@@ -135,6 +154,9 @@ std::optional<ImageBaseRegisterResult> FindRegisterHoldingValue(const ModuleRang
     ctx->NopThreshold = SHEMU_DEFAULT_NOP_THRESHOLD;
     ctx->StrThreshold = SHEMU_DEFAULT_STR_THRESHOLD;
     ctx->MemThreshold = 100;
+
+    AccessState accessState{};
+    ctx->AuxData = &accessState;
     ctx->AccessMemory = &ShemuAccessMemory;
 
     ctx->Registers.RegRip = start;
@@ -142,6 +164,16 @@ std::optional<ImageBaseRegisterResult> FindRegisterHoldingValue(const ModuleRang
     size_t consumed = 0;
     for (size_t i = 0; i <= maxInstructions; ++i)
     {
+        const uintptr_t rip = static_cast<uintptr_t>(ctx->Registers.RegRip);
+
+        // `consumed` is later used by the caller as a *contiguous* byte span
+        // from `start`. Every emulated / stepped instruction must therefore be
+        // contiguous: a taken branch (even inside the window) fails closed.
+        if (rip != start + consumed)
+        {
+            return std::nullopt;
+        }
+
         for (int idx = 0; idx < 16; ++idx)
         {
             if (detail::ShemuGpr(ctx->Registers, kNdrGpr[idx]) == wantedValue)
@@ -154,24 +186,24 @@ std::optional<ImageBaseRegisterResult> FindRegisterHoldingValue(const ModuleRang
             break;
         }
 
-        const uintptr_t rip = static_cast<uintptr_t>(ctx->Registers.RegRip);
         if (rip < winBase || rip + 16 > winEnd)
         {
-            break; // execution left the bounded window - fail closed
+            break; // execution would leave the bounded window - fail closed
         }
 
         const auto decoded = memory::DecodeOne(rip);
-        if (!decoded)
+        if (!decoded || decoded->length == 0)
         {
             break;
         }
         const INSTRUX& ix = decoded->instrux;
+        const uintptr_t expectedNext = rip + decoded->length;
         const bool writesMem = (ix.MemoryAccess & ND_ACCESS_ANY_WRITE) != 0 && !ix.BranchInfo.IsBranch;
         const bool isCall = ix.Category == ND_CAT_CALL;
 
         if (writesMem || isCall)
         {
-            ctx->Registers.RegRip = rip + decoded->length;
+            ctx->Registers.RegRip = expectedNext;
             ctx->Instruction = ix;
             ctx->InstructionsCount += 1;
             consumed += decoded->length;
@@ -180,18 +212,32 @@ std::optional<ImageBaseRegisterResult> FindRegisterHoldingValue(const ModuleRang
 
         ctx->MaxInstructionsCount = ctx->InstructionsCount + 1;
         const SHEMU_STATUS status = ShemuEmulate(ctx.get());
+
+        if (accessState.invalidLoad)
+        {
+            return std::nullopt; // an invalid external load: do not guess
+        }
+
         if (status != SHEMU_SUCCESS)
         {
-            const auto again = memory::DecodeOne(static_cast<uintptr_t>(ctx->Registers.RegRip));
-            if (!again)
+            // Fail-soft step-over only if the failure left RIP at the linear
+            // location (Shemu may or may not have advanced it).
+            const uintptr_t after = static_cast<uintptr_t>(ctx->Registers.RegRip);
+            if (after != rip && after != expectedNext)
             {
-                break;
+                return std::nullopt;
             }
-            ctx->Registers.RegRip += again->length;
-            ctx->Instruction = again->instrux;
+            ctx->Registers.RegRip = expectedNext;
+            ctx->Instruction = ix;
             ctx->InstructionsCount += 1;
-            consumed += again->length;
+            consumed += decoded->length;
             continue;
+        }
+
+        // Successful emulation must have advanced linearly.
+        if (static_cast<uintptr_t>(ctx->Registers.RegRip) != expectedNext)
+        {
+            return std::nullopt;
         }
         consumed += decoded->length;
     }

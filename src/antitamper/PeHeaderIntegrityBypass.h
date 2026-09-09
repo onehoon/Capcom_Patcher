@@ -38,6 +38,27 @@ bool SupportsPeHeaderIntegrity(game_profile::GameId id) noexcept;
 
 namespace detail
 {
+// A fully validated PE-header patch candidate (discovery output).
+struct Candidate
+{
+    uintptr_t anchor{};
+    uintptr_t patchAddress{}; // anchor + 10
+    int reg{};                // NDR_RAX..NDR_R15 holding the image base
+    size_t span{};            // whole-instruction bytes to replace
+    std::array<uint8_t, 10> anchorBytes{}; // exact anchor bytes at capture time
+    std::vector<uint8_t> patchBytes;       // exact bytes at [patchAddress, +span)
+};
+
+// Read-only completion for an anchor that already passed the boundary +
+// structural checks: emulate the image-base register, capture the anchor + patch
+// bytes, confirm the wildcard signature. nullopt = fail closed.
+std::optional<Candidate> CompleteCandidateAt(const memory::ModuleRange& game, uintptr_t anchor) noexcept;
+
+// Re-prove `prior` against live memory (final under-suspension revalidation):
+// anchor identity + signature, anchor->patch instruction boundary, structural
+// discriminator, emulated register + span, and the captured patch bytes.
+bool CandidateStillValid(const memory::ModuleRange& game, const Candidate& prior) noexcept;
+
 // NDR_RAX..NDR_R15 -> 0..15 (explicit; never assumes the enum values).
 std::optional<unsigned> ToX64GprIndex(int ndrReg) noexcept;
 

@@ -75,15 +75,6 @@ bool RangeIsCommittedExecutable(uintptr_t address, size_t size) noexcept
     return true;
 }
 
-struct Discovery
-{
-    uintptr_t anchor{};
-    uintptr_t patchAddress{};
-    int reg{};
-    size_t span{};
-    std::vector<uint8_t> expected;
-};
-
 bool BoundariesProven(uintptr_t anchor) noexcept
 {
     auto start = memory::FindFunctionStartUnwind(anchor);
@@ -99,44 +90,7 @@ bool BoundariesProven(uintptr_t anchor) noexcept
            detail::DecodeReachesBoundary(*start, anchor + kAnchorLen);
 }
 
-// Full read-only completion for an anchor that already passed the boundary +
-// structural checks. nullopt here means fail-closed (caller must not fall
-// through to a later look-alike anchor).
-std::optional<Discovery> CompleteCandidate(const memory::ModuleRange& game, uintptr_t anchor) noexcept
-{
-    const uintptr_t patchAddr = anchor + kAnchorLen;
-
-    const auto emu = memory::FindRegisterHoldingValue(game, patchAddr, game.base, 15);
-    if (!emu)
-    {
-        Log("[CapcomPatcher][PEHeader] emulation did not resolve image-base register; no patch");
-        return std::nullopt;
-    }
-    if (emu->consumedBytes < kAnchorLen)
-    {
-        Log("[CapcomPatcher][PEHeader] patch span %zu shorter than movabs; no patch", emu->consumedBytes);
-        return std::nullopt;
-    }
-    if (patchAddr + emu->consumedBytes > game.end() || !RangeIsCommittedExecutable(patchAddr, emu->consumedBytes))
-    {
-        Log("[CapcomPatcher][PEHeader] patch span not inside committed executable image; no patch");
-        return std::nullopt;
-    }
-    if (!detail::ToX64GprIndex(emu->reg))
-    {
-        return std::nullopt;
-    }
-
-    std::vector<uint8_t> expected(emu->consumedBytes);
-    if (!memory::TryReadBytes(patchAddr, expected.data(), expected.size()))
-    {
-        return std::nullopt;
-    }
-
-    return Discovery{anchor, patchAddr, emu->reg, emu->consumedBytes, std::move(expected)};
-}
-
-std::optional<Discovery> Discover(const memory::ModuleRange& game) noexcept
+std::optional<detail::Candidate> Discover(const memory::ModuleRange& game) noexcept
 {
     if (game.size <= kHeaderCopySize)
     {
@@ -167,7 +121,7 @@ std::optional<Discovery> Discover(const memory::ModuleRange& game) noexcept
         Log("[CapcomPatcher][PEHeader] structural candidate accepted @ +0x%zx",
             static_cast<size_t>(*hit - game.base));
         // Fully recognized PE-integrity candidate: succeed or fail closed here.
-        return CompleteCandidate(game, *hit);
+        return detail::CompleteCandidateAt(game, *hit);
     }
     return std::nullopt;
 }
@@ -289,18 +243,12 @@ void Initialize(const game_profile::GameProfile& profile) noexcept
         return;
     }
 
-    // Revalidate the dynamic meaning (register + span + bytes) under suspension.
+    // Revalidate the full dynamic meaning under suspension: module identity,
+    // anchor identity + boundaries, structural discriminator, emulated register
+    // + span, and the captured patch bytes.
     const auto stillGame = memory::MainModule();
     if (!stillGame || stillGame.base != game.base || stillGame.size != game.size ||
-        !BoundariesProven(candidate->anchor) || !detail::StructuralDiscriminatorMatches(candidate->anchor))
-    {
-        g_state = State::Failed;
-        Log("[CapcomPatcher][PEHeader] final revalidation changed; skipped");
-        return;
-    }
-    const auto revalidated = CompleteCandidate(game, candidate->anchor);
-    if (!revalidated || revalidated->reg != candidate->reg || revalidated->span != candidate->span ||
-        revalidated->expected != candidate->expected)
+        !BoundariesProven(candidate->anchor) || !detail::CandidateStillValid(game, *candidate))
     {
         g_state = State::Failed;
         Log("[CapcomPatcher][PEHeader] final revalidation changed; skipped");
@@ -309,7 +257,7 @@ void Initialize(const game_profile::GameProfile& profile) noexcept
 
     memory::BytePatchCandidate patch{};
     patch.address = candidate->patchAddress;
-    patch.expected = candidate->expected;
+    patch.expected = candidate->patchBytes;
     patch.writeOffset = 0;
     patch.replacement = std::move(replacement);
     patch.name = "RE9-family PE-header image-base redirection";
@@ -340,6 +288,90 @@ void Initialize(const game_profile::GameProfile& profile) noexcept
 
 namespace detail
 {
+std::optional<Candidate> CompleteCandidateAt(const memory::ModuleRange& game, uintptr_t anchor) noexcept
+{
+    const uintptr_t patchAddr = anchor + kAnchorLen;
+
+    std::array<uint8_t, kAnchorLen> anchorBytes{};
+    if (!memory::TryReadBytes(anchor, anchorBytes.data(), anchorBytes.size()))
+    {
+        return std::nullopt;
+    }
+    // Confirm the exact wildcard signature still starts at this anchor.
+    const auto sig = memory::Scan(anchor, kAnchorLen, kAnchorSig);
+    if (!sig || *sig != anchor)
+    {
+        return std::nullopt;
+    }
+
+    const auto emu = memory::FindRegisterHoldingValue(game, patchAddr, game.base, 15);
+    if (!emu)
+    {
+        Log("[CapcomPatcher][PEHeader] emulation did not resolve image-base register; no patch");
+        return std::nullopt;
+    }
+    if (emu->consumedBytes < kAnchorLen)
+    {
+        Log("[CapcomPatcher][PEHeader] patch span %zu shorter than movabs; no patch", emu->consumedBytes);
+        return std::nullopt;
+    }
+    if (patchAddr + emu->consumedBytes > game.end() ||
+        !RangeIsCommittedExecutable(patchAddr, emu->consumedBytes))
+    {
+        Log("[CapcomPatcher][PEHeader] patch span not inside committed executable image; no patch");
+        return std::nullopt;
+    }
+    if (!ToX64GprIndex(emu->reg))
+    {
+        return std::nullopt;
+    }
+
+    std::vector<uint8_t> patchBytes(emu->consumedBytes);
+    if (!memory::TryReadBytes(patchAddr, patchBytes.data(), patchBytes.size()))
+    {
+        return std::nullopt;
+    }
+
+    return Candidate{anchor, patchAddr, emu->reg, emu->consumedBytes, anchorBytes, std::move(patchBytes)};
+}
+
+bool CandidateStillValid(const memory::ModuleRange& game, const Candidate& prior) noexcept
+{
+    if (prior.span < kAnchorLen || prior.patchBytes.size() != prior.span)
+    {
+        return false;
+    }
+
+    std::array<uint8_t, kAnchorLen> anchorNow{};
+    if (!memory::TryReadBytes(prior.anchor, anchorNow.data(), anchorNow.size()) || anchorNow != prior.anchorBytes)
+    {
+        return false;
+    }
+    const auto sig = memory::Scan(prior.anchor, kAnchorLen, kAnchorSig);
+    if (!sig || *sig != prior.anchor)
+    {
+        return false;
+    }
+    if (!DecodeReachesBoundary(prior.anchor, prior.patchAddress) ||
+        !StructuralDiscriminatorMatches(prior.anchor))
+    {
+        return false;
+    }
+
+    const auto emu = memory::FindRegisterHoldingValue(game, prior.patchAddress, game.base, 15);
+    if (!emu || emu->reg != prior.reg || emu->consumedBytes != prior.span)
+    {
+        return false;
+    }
+
+    std::vector<uint8_t> now(prior.span);
+    if (!memory::TryReadBytes(prior.patchAddress, now.data(), now.size()) || now != prior.patchBytes)
+    {
+        return false;
+    }
+    return true;
+}
+
 std::optional<unsigned> ToX64GprIndex(int ndrReg) noexcept
 {
     switch (ndrReg)
