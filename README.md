@@ -49,9 +49,11 @@ never used as an automatic opt-in for future Capcom games.
   corruption guard (all DD2-family profiles), and the DD2-family suspicious
   constant patch. Raw byte writes are revalidated and applied under a short
   thread-suspension window; the `createBLAS` inline hook reuses the PR1 MinHook
-  wrapper. Scanning/patching primitives live in `src/memory/` (shape from
-  `onehoon/OptiPatcher@72e716b`, advanced helpers adapted from
-  `cursey/kananlib@8c27b65`). PAK/natives, RE9-family, heartbeat and
+  wrapper. Scanning/patching primitives live in `src/memory/` (byte-scan shape
+  from `onehoon/OptiPatcher@72e716b`, advanced helpers adapted from
+  `cursey/kananlib@8c27b65` and decoding with the pinned
+  `bitdefender/bddisasm@70db095` `NdDecodeEx` for full VEX/EVEX/XOP coverage).
+  PAK/natives, RE9-family, heartbeat and
   stack-destroyer behavior are **not** included.
 
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
