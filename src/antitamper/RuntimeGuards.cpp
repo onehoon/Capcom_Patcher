@@ -475,29 +475,37 @@ bool InstallRtlExitUserProcessGuard()
     Log("[CapcomPatcher][Exit] RtlExitUserProcess hook installed");
     return true;
 }
-} // namespace
 
-void EarlyInitialize(HMODULE selfModule) noexcept
+// Guards A/C/D in REFramework's Main.cpp relative order. Every installer is
+// idempotent (no-op once its hook is valid) and fail-soft, so this is safe to
+// call more than once: the earliest attempt runs under loader lock, and any
+// guard that failed transiently there is retried outside loader lock.
+void EnsureCommonEarlyGuards(HMODULE selfModule) noexcept
 {
-    static std::atomic<bool> done{false};
-    if (done.exchange(true))
+    if (selfModule != nullptr)
     {
-        return;
+        g_selfModule = selfModule;
     }
 
-    g_selfModule = selfModule;
-    Log("[CapcomPatcher][RuntimeGuard] early runtime guard initialization started");
-
-    // REFramework Main.cpp relative order. Each call is fail-soft.
     SetupPristineNtProtectVirtualMemory();
     InstallVectoredExceptionHandlerGuard();
     InstallRtlExitUserProcessGuard();
 }
+} // namespace
+
+void EarlyInitialize(HMODULE selfModule) noexcept
+{
+    // First/earliest attempt, still under DLL_PROCESS_ATTACH. No outer latch:
+    // per-guard validity is the idempotency boundary.
+    Log("[CapcomPatcher][RuntimeGuard] early runtime guard initialization started");
+    EnsureCommonEarlyGuards(selfModule);
+}
 
 void PostLoadInitialize() noexcept
 {
-    // No outer latch: InstallVirtualProtectGuard() is idempotent via its own
-    // IsValid() check and stays retryable on a later InitializeASI() call.
+    // Retry any early guard that failed under loader lock (already-active guards
+    // return immediately), then install the post-load VirtualProtect guard.
+    EnsureCommonEarlyGuards(g_selfModule);
     InstallVirtualProtectGuard();
 }
 } // namespace antitamper::runtime_guards
