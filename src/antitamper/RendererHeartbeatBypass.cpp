@@ -221,51 +221,71 @@ void WorkerLoop()
     size_t lastSeededCount = 0;
     size_t lastReducedCount = 0;
 
-    // The renderer singleton / get_RenderFrame resolution is a real engine call;
-    // re-resolve it a few times a second rather than every 1 ms poll. A stale
-    // renderer is still caught immediately: every heartbeat read/write is
-    // SEH-guarded and a fault forces an immediate re-resolve + discovery reset.
     reengine::RendererFrameSource fs{};
-    DWORD lastResolveTick = 0;
     bool forceResolve = true;
+    uint32_t lastIdentityCheckFrame = 0;
+    uint32_t lastObservedFrame = 0;
+    bool haveObservedFrame = false;
+
+    // Drop every piece of discovery/sync state and force a fresh bridge
+    // resolution. Used when the engine frame counter regresses or a
+    // read/write into the confirmed cluster faults - in both cases the
+    // renderer identity we hold can no longer be trusted.
+    const auto fullReset = [&]() {
+        discovery.Reset();
+        trackedRenderer = nullptr;
+        fs = {};
+        forceResolve = true;
+        syncActiveLogged = false;
+        lastScanFrame = 0;
+        lastSyncFrame = 0;
+        lastIdentityCheckFrame = 0;
+        lastObservedFrame = 0;
+        haveObservedFrame = false;
+        lastSeededCount = 0;
+        lastReducedCount = 0;
+    };
+
+    // Returns false (caller should `continue`) on a non-Ready bridge; returns
+    // via `return` from WorkerLoop on UnsupportedLayout.
+    const auto tryResolve = [&](bool& outReady) -> bool {
+        reengine::RendererFrameSource fresh{};
+        const auto status = bridge.Resolve(fresh);
+        if (status == reengine::ResolveStatus::UnsupportedLayout)
+        {
+            Log("[CapcomPatcher][Heartbeat] disabled for this session (TDB layout mismatch)");
+            outReady = false;
+            return false; // signal: return from WorkerLoop
+        }
+        if (status != reengine::ResolveStatus::Ready)
+        {
+            fs = {};
+            forceResolve = true;
+            outReady = false;
+            return true;
+        }
+        fs = fresh;
+        forceResolve = false;
+        outReady = true;
+        return true;
+    };
 
     for (;;)
     {
-        const DWORD now = GetTickCount();
-        if (forceResolve || fs.renderer == nullptr || now - lastResolveTick >= 250)
+        bool resolvedThisIteration = false;
+        if (forceResolve || fs.renderer == nullptr)
         {
-            reengine::RendererFrameSource fresh{};
-            const auto status = bridge.Resolve(fresh);
-
-            if (status == reengine::ResolveStatus::UnsupportedLayout)
+            bool ready = false;
+            if (!tryResolve(ready))
             {
-                Log("[CapcomPatcher][Heartbeat] disabled for this session (TDB layout mismatch)");
                 return;
             }
-            if (status != reengine::ResolveStatus::Ready)
+            if (!ready)
             {
-                fs.renderer = nullptr;
                 Sleep(100);
                 continue;
             }
-            fs = fresh;
-            lastResolveTick = now;
-            forceResolve = false;
-        }
-
-        if (fs.renderer != trackedRenderer)
-        {
-            if (trackedRenderer != nullptr)
-            {
-                Log("[CapcomPatcher][Heartbeat] renderer changed; resetting discovery");
-            }
-            trackedRenderer = fs.renderer;
-            discovery.Reset();
-            syncActiveLogged = false;
-            lastScanFrame = 0;
-            lastSyncFrame = 0;
-            lastSeededCount = 0;
-            lastReducedCount = 0;
+            resolvedThisIteration = true;
         }
 
         uint32_t frameCount = 0;
@@ -284,6 +304,54 @@ void WorkerLoop()
         }
         getterFaults = 0;
 
+        // Fail closed on an unexpected engine-frame regression (renderer/device
+        // lifecycle that resets the counter). A confirmed cluster must never
+        // receive the regressed value. A bare uint32 wrap is rare enough that
+        // treating it as a reset is the safe choice.
+        if (detail::FrameRegressed(haveObservedFrame, lastObservedFrame, frameCount))
+        {
+            Log("[CapcomPatcher][Heartbeat] render frame regressed (%u -> %u); reacquiring renderer and resetting discovery",
+                lastObservedFrame, frameCount);
+            fullReset();
+            continue;
+        }
+        lastObservedFrame = frameCount;
+        haveObservedFrame = true;
+
+        // Revalidate the native singleton identity once per new engine frame
+        // (REFramework resolves it every on_frame()). A replaced renderer whose
+        // old allocation is still committed would otherwise keep receiving
+        // heartbeat writes for up to a full resolution interval.
+        if (!resolvedThisIteration && frameCount != lastIdentityCheckFrame)
+        {
+            bool ready = false;
+            if (!tryResolve(ready))
+            {
+                return;
+            }
+            if (!ready)
+            {
+                Sleep(100);
+                continue;
+            }
+        }
+        lastIdentityCheckFrame = frameCount;
+
+        if (fs.renderer != trackedRenderer)
+        {
+            if (trackedRenderer != nullptr)
+            {
+                Log("[CapcomPatcher][Heartbeat] renderer changed; resetting discovery");
+            }
+            trackedRenderer = fs.renderer;
+            discovery.Reset();
+            syncActiveLogged = false;
+            lastScanFrame = 0;
+            lastSyncFrame = 0;
+            lastSeededCount = 0;
+            lastReducedCount = 0;
+        }
+
         const auto rendererAddr = reinterpret_cast<uintptr_t>(fs.renderer);
 
         if (discovery.Confirmed())
@@ -291,9 +359,7 @@ void WorkerLoop()
             const uint32_t offset = *discovery.ConfirmedOffset();
             if (offset < kScanBegin || offset + kHeartbeatCount * sizeof(uint32_t) > kScanEnd)
             {
-                discovery.Reset();
-                trackedRenderer = nullptr;
-                forceResolve = true;
+                fullReset();
                 continue;
             }
 
@@ -305,15 +371,11 @@ void WorkerLoop()
                     !WriteHeartbeats(rendererAddr + offset, frameCount))
                 {
                     Log("[CapcomPatcher][Heartbeat] confirmed sentinels changed; resetting discovery");
-                    discovery.Reset();
-                    trackedRenderer = nullptr;
-                    syncActiveLogged = false;
-                    forceResolve = true;
+                    fullReset();
+                    Sleep(1);
+                    continue;
                 }
-                else
-                {
-                    lastSyncFrame = frameCount;
-                }
+                lastSyncFrame = frameCount;
             }
             Sleep(1);
             continue;

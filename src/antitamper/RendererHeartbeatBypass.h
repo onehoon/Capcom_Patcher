@@ -54,6 +54,14 @@ struct ClusterSnapshot
 //                   (frameCount - value) < kMaxDistance.
 bool AcceptCluster(const ClusterSnapshot& c, uint32_t frameCount) noexcept;
 
+// True when the engine render-frame counter moved backwards - a renderer/device
+// lifecycle reset. The worker fails closed (no write, reacquire) on this. A bare
+// uint32 wrap is treated the same way (rare, and a reset is the safe choice).
+inline bool FrameRegressed(bool haveObserved, uint32_t last, uint32_t current) noexcept
+{
+    return haveObserved && current < last;
+}
+
 // Candidate-intersection confirmation over renderer-relative offsets. A cluster
 // is confirmed only when a single offset survives >= kConfirmationsNeeded scans.
 class Confirmation
@@ -70,7 +78,9 @@ public:
     size_t CandidateCount() const noexcept { return m_candidateCount; }
 
 private:
-    static constexpr size_t kMaxCandidates = 128;
+    // Every 4-byte-aligned start in the scan window can be a candidate; never
+    // truncate the initial set (upstream keeps the full std::vector).
+    static constexpr size_t kMaxCandidates = (kScanEnd - kScanBegin) / sizeof(uint32_t);
     uint32_t m_candidates[kMaxCandidates]{};
     size_t m_candidateCount{};
     int m_count{};
