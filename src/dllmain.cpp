@@ -3,6 +3,7 @@
 #include "pch.h"
 
 #include "GameProfile.h"
+#include "antitamper/DD2FamilyBypass.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
 #include "antitamper/RuntimeGuards.h"
 
@@ -39,18 +40,24 @@ extern "C" __declspec(dllexport) void InitializeASI()
 
     char message[256]{};
     _snprintf_s(message, sizeof(message), _TRUNCATE,
-                "[CapcomPatcher] detected %ls (dbgUiWatcher=%d dd2Family=%d re9Family=%d "
-                "re9SlowPath=%d heartbeat=%d)",
-                profile.canonicalName, profile.dbgUiWatcher, profile.dd2Family, profile.re9Family,
-                profile.re9SlowPath, profile.heartbeat);
+                "[CapcomPatcher] detected %ls (dbgUiWatcher=%d dd2Family=%d dd2ScannerCrasher=%d "
+                "re9Family=%d re9SlowPath=%d heartbeat=%d)",
+                profile.canonicalName, profile.dbgUiWatcher, profile.dd2Family, profile.dd2ScannerCrasher,
+                profile.re9Family, profile.re9SlowPath, profile.heartbeat);
     Log(message);
 
     // Common runtime guard (VirtualProtect / NtProtectVirtualMemory integrity)
     // before the game-memory-touching layers, matching REFramework's order.
     antitamper::runtime_guards::PostLoadInitialize();
 
-    // PR0/PR1 execute the DbgUiRemoteBreakin layer. The DD2/RE9/heartbeat flags
-    // are declarative scaffolding for later PRs.
+    // DD2-family direct anti-tamper core, before the DbgUi watcher.
+    if (profile.dd2Family)
+    {
+        antitamper::dd2_family::Initialize(profile);
+    }
+
+    // PR0/PR1 execute the DbgUiRemoteBreakin layer. The RE9/heartbeat flags are
+    // declarative scaffolding for later PRs.
     if (profile.dbgUiWatcher)
     {
         if (antitamper::dbg_ui::Initialize())

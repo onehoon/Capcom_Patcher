@@ -43,11 +43,21 @@ never used as an automatic opt-in for future Capcom games.
   These apply to all six supported games. Note: the exit guard intentionally
   redirects supported-game process exit to `TerminateProcess`, matching current
   REFramework.
+- **PR2** — the DD2-family direct anti-tamper core extracted from REFramework
+  `IntegrityCheckBypass::immediate_patch_dd2()`: MHW-only QueryPerformance*
+  scanner/crasher suppression (profile-gated), the renderer `createBLAS`
+  corruption guard (all DD2-family profiles), and the DD2-family suspicious
+  constant patch. Raw byte writes are revalidated and applied under a short
+  thread-suspension window; the `createBLAS` inline hook reuses the PR1 MinHook
+  wrapper. Scanning/patching primitives live in `src/memory/` (shape from
+  `onehoon/OptiPatcher@72e716b`, advanced helpers adapted from
+  `cursey/kananlib@8c27b65`). PAK/natives, RE9-family, heartbeat and
+  stack-destroyer behavior are **not** included.
 
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
-layers — DD2-family and RE9-family bypasses, JobQueue fallback, renderer
-heartbeat, stack-destroyer scan, module-path spoofing — are deferred to later
-PRs as described in
+layers — RE9-family bypass, JobQueue fallback, renderer heartbeat,
+stack-destroyer scan, module-path spoofing — are deferred to later PRs as
+described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build

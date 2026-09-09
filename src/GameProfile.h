@@ -16,9 +16,9 @@ enum class GameId
     MonsterHunterStories3,
 };
 
-// Capability flags for the anti-tamper parity layers.
-// PR0 only consumes `dbgUiWatcher`; the remaining flags are declarative
-// scaffolding for later PRs and must not trigger any patching yet.
+// Capability flags for the anti-tamper parity layers. PR0 consumes
+// `dbgUiWatcher`; PR2 consumes `dd2Family` / `dd2ScannerCrasher`. The rest are
+// declarative scaffolding for later PRs and must not trigger any patching yet.
 struct GameProfile
 {
     GameId id{GameId::Unsupported};
@@ -26,6 +26,9 @@ struct GameProfile
 
     bool dbgUiWatcher{false};
     bool dd2Family{false};
+    // MHW-only in current REFramework: the QueryPerformance* scanner/crasher
+    // sub-path of immediate_patch_dd2(). Never TDB-derived.
+    bool dd2ScannerCrasher{false};
     bool re9Family{false};
     bool re9SlowPath{false};
     bool heartbeat{false};

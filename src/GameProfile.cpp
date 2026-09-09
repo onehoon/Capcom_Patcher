@@ -20,25 +20,26 @@ struct Entry
 // and the PR0 work order, section 4.2). No inheritance from TDB version.
 // This is the single canonical table; both the normal and the loader-lock-safe
 // early resolution paths match against it so they cannot drift.
+// Fields: dbgUiWatcher, dd2Family, dd2ScannerCrasher, re9Family, re9SlowPath, heartbeat
 constexpr std::array<Entry, 6> kEntries{{
     {L"monsterhunterwilds.exe",
      {GameId::MonsterHunterWilds, L"Monster Hunter Wilds",
-      /*dbgUi*/ true, /*dd2*/ true, /*re9*/ false, /*re9SlowPath*/ false, /*heartbeat*/ false}},
+      true, true, /*dd2ScannerCrasher*/ true, false, false, false}},
     {L"dd2.exe",
      {GameId::DragonsDogma2, L"Dragon's Dogma 2",
-      true, true, true, false, true}},
+      true, true, false, true, false, true}},
     {L"re9.exe",
      {GameId::ResidentEvilRequiem, L"Resident Evil Requiem",
-      true, true, true, true, true}},
+      true, true, false, true, true, true}},
     {L"pragmata.exe",
      {GameId::Pragmata, L"PRAGMATA",
-      true, true, true, false, true}},
+      true, true, false, true, false, true}},
     {L"onimushawots.exe",
      {GameId::OnimushaWots, L"Onimusha: Way of the Sword",
-      true, true, true, false, true}},
+      true, true, false, true, false, true}},
     {L"monster_hunter_stories_3_twisted_reflection.exe",
      {GameId::MonsterHunterStories3, L"Monster Hunter Stories 3: Twisted Reflection",
-      true, true, true, false, true}},
+      true, true, false, true, false, true}},
 }};
 
 constexpr wchar_t AsciiToLower(wchar_t ch) noexcept

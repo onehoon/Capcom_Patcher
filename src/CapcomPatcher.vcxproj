@@ -97,8 +97,12 @@
     <ClInclude Include="Util.h" />
     <ClInclude Include="GameProfile.h" />
     <ClInclude Include="hooking\MinHookInlineHook.h" />
+    <ClInclude Include="memory\MemoryScan.h" />
+    <ClInclude Include="memory\MemoryPatch.h" />
+    <ClInclude Include="memory\ThreadSuspension.h" />
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h" />
     <ClInclude Include="antitamper\RuntimeGuards.h" />
+    <ClInclude Include="antitamper\DD2FamilyBypass.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -109,8 +113,12 @@
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="GameProfile.cpp" />
     <ClCompile Include="hooking\MinHookInlineHook.cpp" />
+    <ClCompile Include="memory\MemoryScan.cpp" />
+    <ClCompile Include="memory\MemoryPatch.cpp" />
+    <ClCompile Include="memory\ThreadSuspension.cpp" />
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp" />
     <ClCompile Include="antitamper\RuntimeGuards.cpp" />
+    <ClCompile Include="antitamper\DD2FamilyBypass.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- Vendored MinHook (TsudaKageyu/minhook @ 98b74f1). Compiled as C, no PCH,
