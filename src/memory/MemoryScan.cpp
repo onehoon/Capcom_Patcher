@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 
 extern "C" {
 #include "../../third_party/minhook/src/hde/hde64.h"
@@ -230,12 +231,6 @@ size_t DecodeAt(uintptr_t ip, hde64s& hs) noexcept
     return len;
 }
 
-size_t InstructionLength(uintptr_t ip) noexcept
-{
-    hde64s hs{};
-    return DecodeAt(ip, hs);
-}
-
 bool IsTerminatorOpcode(uint8_t opcode) noexcept
 {
     return opcode == 0xC3 || opcode == 0xC2 || opcode == 0xCB || opcode == 0xCA || opcode == 0xCC;
@@ -250,37 +245,56 @@ size_t ImmediateBytes(const hde64s& hs) noexcept
     return 0;
 }
 
-// Instruction-validity gate: is `dispAddr` the exact location of a real decoded
-// 4-byte operand (RIP-relative disp32 memory operand, or a rel32 branch) of an
-// instruction that starts within 15 bytes before it? Rejects raw byte-window
-// coincidences that Kananlib's decoder-backed scan would filter out.
-bool IsDecodedOperandAt(uintptr_t dispAddr) noexcept
+// Does the instruction at `ip` (already decoded into `hs`/`len`) carry a 4-byte
+// operand (rel32 branch or RIP-relative disp32 memory operand) whose field is
+// exactly at `dispAddr`?
+bool OperandIsAt(uintptr_t ip, const hde64s& hs, size_t len, uintptr_t dispAddr) noexcept
 {
-    for (size_t k = 1; k <= 15; ++k)
+    // rel32 branch / call: E8, E9, 0F 8x. rel32 is the last 4 bytes.
+    if ((hs.flags & F_RELATIVE) != 0 && (hs.flags & F_IMM32) != 0 && len >= 4 && ip + len - 4 == dispAddr)
     {
-        const uintptr_t start = dispAddr - k;
-        hde64s hs{};
-        const size_t len = DecodeAt(start, hs);
-        if (len == 0 || start + len < dispAddr + 4)
-        {
-            continue;
-        }
+        return true;
+    }
 
-        // rel32 branch / call: E8, E9, or 0F 8x (jcc rel32). rel32 is last.
-        if ((hs.flags & F_RELATIVE) != 0 && (hs.flags & F_IMM32) != 0 && start + len - 4 == dispAddr)
+    // RIP-relative memory operand: modrm mod=00 rm=101, F_DISP32 set. The disp32
+    // precedes any immediate.
+    if ((hs.flags & F_DISP32) != 0 && hs.modrm_mod == 0 && hs.modrm_rm == 5)
+    {
+        const size_t immBytes = ImmediateBytes(hs);
+        if (len >= 4 + immBytes && ip + (len - 4 - immBytes) == dispAddr)
         {
             return true;
         }
+    }
+    return false;
+}
 
-        // RIP-relative memory operand: modrm mod=00 rm=101, F_DISP32 set.
-        if ((hs.flags & F_DISP32) != 0 && hs.modrm_mod == 0 && hs.modrm_rm == 5)
+// Instruction-validity gate anchored to the containing function (mirrors
+// Kananlib resolve_instruction): decode forward from the pdata function start
+// until the instruction that contains `dispAddr`, and check its operand field.
+// Rejects raw byte-window coincidences that fall inside another instruction.
+bool IsDecodedOperandAt(uintptr_t dispAddr) noexcept
+{
+    const auto functionStart = FunctionStartImpl(dispAddr, /*followChain=*/false);
+    if (!functionStart || *functionStart > dispAddr)
+    {
+        return false;
+    }
+
+    uintptr_t ip = *functionStart;
+    for (size_t guard = 0; guard < 4096 && ip <= dispAddr; ++guard)
+    {
+        hde64s hs{};
+        const size_t len = DecodeAt(ip, hs);
+        if (len == 0)
         {
-            const size_t dispPos = len - 4 - ImmediateBytes(hs);
-            if (start + dispPos == dispAddr)
-            {
-                return true;
-            }
+            return false;
         }
+        if (dispAddr < ip + len)
+        {
+            return OperandIsAt(ip, hs, len, dispAddr);
+        }
+        ip += len;
     }
     return false;
 }
@@ -503,62 +517,79 @@ std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::st
         return std::nullopt;
     }
 
-    // Bounded control-flow walk (approximation of Kananlib's exhaustive_decode):
-    // follow direct unconditional jumps, queue conditional-branch targets, stop
-    // at ret / int3 / decode error. Pattern is only matched at instruction
-    // boundaries, never in bytes unreachable after an unconditional jump.
-    const uintptr_t lo = ip;
-    const uintptr_t hi = ip + maxSize;
+    // Bounded control-flow walk after Kananlib's exhaustive_decode: `maxSize` is
+    // an instruction-count bound *per traversed path* (upstream calls this with
+    // 1000), not a byte window. Follows direct and RIP-relative-indirect
+    // unconditional jumps to their real target, queues conditional-branch
+    // targets, steps over CALLs, and stops at ret / int3 / decode error or an
+    // unresolvable unconditional jump. A global unique-instruction cap bounds
+    // total work; the pattern is only ever matched at a reachable instruction
+    // boundary.
     std::vector<uintptr_t> worklist{ip};
-    std::vector<uintptr_t> visited;
-    size_t budget = 4096;
+    std::unordered_set<uintptr_t> visited;
+    size_t globalBudget = (maxSize > 2048 ? maxSize : 2048) * 16;
 
-    while (!worklist.empty() && budget-- > 0)
+    while (!worklist.empty() && globalBudget > 0)
     {
         uintptr_t cursor = worklist.back();
         worklist.pop_back();
 
-        while (cursor >= lo && cursor < hi && budget-- > 0)
+        for (size_t step = 0; step < maxSize && globalBudget > 0; ++step)
         {
-            if (std::find(visited.begin(), visited.end(), cursor) != visited.end())
+            --globalBudget;
+
+            if (!visited.insert(cursor).second)
             {
                 break;
             }
-            visited.push_back(cursor);
 
+            if (!IsReadableRange(cursor, 16))
+            {
+                break;
+            }
             if (ScanParsed(cursor, parsed.size(), parsed) == cursor)
             {
                 return cursor;
             }
 
-            uint8_t opcode = 0;
-            if (!SafeReadT(cursor, opcode) || IsTerminatorOpcode(opcode))
+            hde64s hs{};
+            const size_t len = DecodeAt(cursor, hs);
+            if (len == 0 || IsTerminatorOpcode(hs.opcode))
             {
                 break;
             }
 
-            hde64s hs{};
-            const size_t len = DecodeAt(cursor, hs);
-            if (len == 0)
+            // RIP-relative indirect JMP:  FF /4  with mod=00 rm=101.
+            if (hs.opcode == 0xFF && hs.modrm_reg == 4)
             {
-                break;
+                if (hs.modrm_mod == 0 && hs.modrm_rm == 5 && (hs.flags & F_DISP32) != 0)
+                {
+                    const uintptr_t slot = cursor + len + static_cast<intptr_t>(static_cast<int32_t>(hs.disp.disp32));
+                    uintptr_t target = 0;
+                    if (TryReadBytes(slot, &target, sizeof(target)) && target != 0 && target != cursor)
+                    {
+                        cursor = target;
+                        continue;
+                    }
+                }
+                break; // never linearly fall through an unresolved indirect JMP
             }
 
             const DirectJump jump = ClassifyJump(cursor, hs, len);
             if (jump.isJump)
             {
-                if (!jump.unconditional && jump.target >= lo && jump.target < hi)
-                {
-                    worklist.push_back(jump.target);
-                }
                 if (jump.unconditional)
                 {
-                    if (jump.target >= lo && jump.target < hi)
+                    if (jump.target != 0 && jump.target != cursor)
                     {
                         cursor = jump.target;
                         continue;
                     }
-                    break; // unconditional jump out of the window
+                    break;
+                }
+                if (jump.target != 0)
+                {
+                    worklist.push_back(jump.target);
                 }
             }
 

@@ -62,27 +62,37 @@ ThreadSuspensionScope::ThreadSuspensionScope()
             continue;
         }
 
-        do
+        for (;;)
         {
-            if (entry.th32OwnerProcessID != pid || entry.th32ThreadID == selfTid)
+            if (entry.th32OwnerProcessID == pid && entry.th32ThreadID != selfTid)
             {
-                continue;
+                const HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.th32ThreadID);
+                if (thread == nullptr)
+                {
+                    failed = true;
+                    break;
+                }
+                if (SuspendThread(thread) == static_cast<DWORD>(-1))
+                {
+                    CloseHandle(thread);
+                    failed = true;
+                    break;
+                }
+                m_threads.push_back(thread);
             }
 
-            const HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.th32ThreadID);
-            if (thread == nullptr)
+            SetLastError(ERROR_SUCCESS);
+            if (!Thread32Next(snapshot, &entry))
             {
-                failed = true;
+                // Only ERROR_NO_MORE_FILES is a clean end-of-list; anything else
+                // is an incomplete enumeration and must fail closed.
+                if (GetLastError() != ERROR_NO_MORE_FILES)
+                {
+                    failed = true;
+                }
                 break;
             }
-            if (SuspendThread(thread) == static_cast<DWORD>(-1))
-            {
-                CloseHandle(thread);
-                failed = true;
-                break;
-            }
-            m_threads.push_back(thread);
-        } while (Thread32Next(snapshot, &entry));
+        }
 
         CloseHandle(snapshot);
 

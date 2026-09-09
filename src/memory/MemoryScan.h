@@ -12,12 +12,19 @@
 // find_function_start_unwind, find_pattern_in_path, find_function_with_refs,
 // find_function_from_string_ref, calculate_absolute.
 //
-// Deviations from Kananlib (documented in the PR body):
-//  - displacement/relative-reference scans use a raw 4-byte-window match on
-//    calculate_absolute() rather than a bddisasm-validated operand;
-//  - find_pattern_in_path walks instruction boundaries with the vendored HDE64
-//    length disassembler (stops at RET / decode error / max size) instead of
-//    bddisasm's exhaustive_decode.
+// The advanced helpers use the vendored HDE64 length disassembler in place of
+// Kananlib's bddisasm dependency, but keep the important semantics:
+//  - displacement / relative-reference matches are validated by decoding forward
+//    from the containing pdata function start until the instruction that owns
+//    the candidate offset (mirrors Kananlib resolve_instruction); a raw 4-byte
+//    window that falls inside another instruction is rejected;
+//  - FindPatternInPath is a bounded control-flow walk after exhaustive_decode:
+//    `maxSize` is an instruction-count bound per traversed path, direct and
+//    RIP-relative-indirect unconditional jumps are followed, conditional-branch
+//    targets are queued, CALLs are stepped over, and the walk stops at
+//    ret / int3 / an unresolvable jump.
+// Remaining deviation: indirect branch targets other than `jmp [rip+disp32]`
+// are not resolved (the walk stops there rather than guessing).
 
 #include <cstddef>
 #include <cstdint>
