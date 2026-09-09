@@ -510,19 +510,31 @@ spoofing now.
 The following bounded, read-only evidence-collection tasks resolve the
 classification and belong in the six-game runtime validation phase:
 
-1. **Loader-identity snapshot (read-only).** From `InitializeASI()` (post-load,
-   off `DllMain`), a one-shot SEH-guarded walk of the PEB `InMemoryOrderModuleList`
-   recording, for `CapcomPatcher.asi`, **the OptiScaler proxy/main module**, and
-   the game `.exe` only: `BaseDllName`, and a **path class**
-   (`game_root | plugin_dir | game_subdir | system | other`) for each of
-   (disk / `GetModuleFileNameW` / PEB `FullDllName`), plus whether they agree.
-   For the OptiScaler proxy this confirms whether its game-root identity is truly
-   consistent in practice; for the ASI it settles the relative-vs-absolute B/C/D
-   question left open in §9.1. Output one normalized line per module — no raw
-   user paths in normal output. No writes, no retained pointers, no callback, no
-   polling. This is the `INCONCLUSIVE → resolved` instrument; add it with focused
-   unit tests for the pure path-classification / normalization / case-insensitive
-   comparison logic.
+1. **Loader-identity snapshot (read-only).** A one-shot SEH-guarded walk of the
+   PEB `InMemoryOrderModuleList` recording, for `CapcomPatcher.asi`, **the
+   OptiScaler proxy/main module**, and the game `.exe` only: `BaseDllName`, and a
+   **path class** (`game_root | plugin_dir | game_subdir | system | other`) for
+   each of (disk / `GetModuleFileNameW` / PEB `FullDllName`), plus whether they
+   agree. For the OptiScaler proxy this confirms whether its game-root identity
+   is truly consistent in practice; for the ASI it settles the
+   relative-vs-absolute B/C/D question left open in §9.1. One normalized line per
+   module — no raw user paths in normal output. No writes, no retained pointers,
+   no callback, no polling.
+
+   **Do not run this walk from `InitializeASI()` in the current default OptiScaler
+   topology.** §5.1 / §8 establish that OptiScaler calls `CapcomPatcher.asi`'s
+   `InitializeASI()` synchronously from `LoadAsiPlugins()`, which itself runs
+   inside OptiScaler's `DllMain(DLL_PROCESS_ATTACH)` — so for a normal
+   (non-`-loadlate`) plugin, `InitializeASI()` still executes **under the process
+   loader lock**, and the PR7 work order (§14) requires a loader-list walk to run
+   only outside `DllMain` / the loader lock. Run the one-shot audit only from a
+   point proven to execute **after** the loader lock is released — e.g. a
+   dedicated diagnostic/dev-build export invoked after normal startup returns, or
+   an already-existing post-loader worker path whose timing is explicitly proven
+   safe.
+
+   Add it with focused unit tests for the pure path-classification / normalization
+   / case-insensitive comparison logic.
 2. **Non-default `PluginPath` A/B.** With `PluginPath` set to the game
    executable directory (so `CapcomPatcher.asi` is game-root), launch each
    available selected game with and without `CapcomPatcher.asi` and record
