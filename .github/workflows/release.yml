@@ -1,0 +1,60 @@
+name: build
+
+# Builds CapcomPatcher.asi (x64 Release) with the committed v143 toolset.
+# On a `v*` tag push it also attaches the .asi to the GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build (Release | x64)
+        run: msbuild CapcomPatcher.sln /p:Configuration=Release /p:Platform=x64 /m /nologo /v:minimal
+
+      - name: Verify ASI
+        shell: pwsh
+        run: |
+          $asi = "x64/Release/CapcomPatcher.asi"
+          if (-not (Test-Path $asi)) { throw "CapcomPatcher.asi was not produced at $asi" }
+          $dumpbin = Get-ChildItem "C:/Program Files/Microsoft Visual Studio/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" |
+                     Select-Object -First 1 -ExpandProperty FullName
+          $exports = & $dumpbin /nologo /exports $asi
+          $names = @($exports |
+            Select-String -Pattern '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\w+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Write-Host "Exports: $($names -join ', ')"
+          foreach ($want in 'InitializeASI', 'PatchResult') {
+            if ($names -notcontains $want) { throw "missing export: $want" }
+          }
+          if ($names.Count -ne 2) { throw "unexpected export count: $($names.Count) ($($names -join ', '))" }
+
+      - name: Upload ASI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CapcomPatcher.asi
+          path: x64/Release/CapcomPatcher.asi
+          if-no-files-found: error
+
+      - name: Attach ASI to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: x64/Release/CapcomPatcher.asi
+          fail_on_unmatched_files: true
