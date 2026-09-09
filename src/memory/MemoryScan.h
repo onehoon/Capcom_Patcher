@@ -12,17 +12,19 @@
 // find_function_start_unwind, find_pattern_in_path, find_function_with_refs,
 // find_function_from_string_ref, calculate_absolute.
 //
-// The advanced helpers use the vendored HDE64 length disassembler in place of
-// Kananlib's bddisasm dependency, but keep the important semantics:
+// The advanced helpers decode with the same pinned bddisasm
+// (bitdefender/bddisasm @ 70db095, via NdDecodeEx) that REFramework / kananlib
+// use, so they have full VEX / EVEX / XOP coverage:
 //  - displacement / relative-reference matches are validated by decoding forward
 //    from the containing pdata function start until the instruction that owns
-//    the candidate offset (mirrors Kananlib resolve_instruction); a raw 4-byte
-//    window that falls inside another instruction is rejected;
+//    the candidate offset (mirrors kananlib resolve_instruction) and must
+//    resolve to the requested target; a raw 4-byte window that falls inside
+//    another instruction is rejected;
 //  - FindPatternInPath is a bounded control-flow walk after exhaustive_decode:
-//    `maxSize` is an instruction-count bound per traversed path, direct and
-//    RIP-relative-indirect unconditional jumps are followed, conditional-branch
-//    targets are queued, CALLs are stepped over, and the walk stops at
-//    ret / int3 / an unresolvable jump.
+//    `maxSize` is an instruction-count bound per traversed path (upstream passes
+//    1000), direct and RIP-relative-indirect unconditional jumps are followed,
+//    conditional-branch targets are queued, CALLs are stepped over, and the walk
+//    stops at ret / int3 / ud / an unresolvable indirect jump.
 // Remaining deviation: indirect branch targets other than `jmp [rip+disp32]`
 // are not resolved (the walk stops there rather than guessing).
 
@@ -83,8 +85,9 @@ std::optional<uintptr_t> ScanDisplacementReference(const ModuleRange& range, uin
 std::optional<uintptr_t> FindFunctionStart(uintptr_t addr) noexcept;
 std::optional<uintptr_t> FindFunctionStartUnwind(uintptr_t addr) noexcept;
 
-// Walk instruction boundaries from `ip` (up to maxSize bytes, stopping at RET /
-// decode error) and return the first boundary where `pattern` matches.
+// Control-flow walk from `ip` (see header note): `maxSize` is a per-path
+// instruction-count bound. Returns the first reachable instruction boundary
+// where `pattern` matches.
 std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::string_view pattern);
 
 // The unwind function start that references every pointer in `targets`.

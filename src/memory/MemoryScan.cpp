@@ -8,7 +8,7 @@
 #include <unordered_set>
 
 extern "C" {
-#include "../../third_party/minhook/src/hde/hde64.h"
+#include <bddisasm.h>
 }
 
 namespace memory
@@ -212,68 +212,73 @@ std::optional<uintptr_t> FunctionStartImpl(uintptr_t addr, bool followChain) noe
     return static_cast<uintptr_t>(imageBase) + function->BeginAddress;
 }
 
-// ---- instruction decoding (vendored HDE64) --------------------------
+// ---- instruction decoding (vendored bddisasm @ 70db095) -------------
+//
+// The advanced anti-tamper scan helpers use the same decoder REFramework /
+// kananlib use (via NdDecodeEx), so they have full VEX / EVEX / XOP coverage.
 
-// Decode at `ip`; returns length (0 on error) and fills `hs`.
-size_t DecodeAt(uintptr_t ip, hde64s& hs) noexcept
+struct Decoded
 {
-    uint8_t bytes[32]{};
+    INSTRUX ix{};
+    size_t length{0};
+    bool ok{false};
+};
+
+Decoded DecodeAt(uintptr_t ip) noexcept
+{
+    Decoded d{};
+    uint8_t bytes[ND_MAX_INSTRUCTION_LENGTH]{};
     if (!SafeRead(reinterpret_cast<const void*>(ip), bytes, sizeof(bytes)))
     {
-        return 0;
+        return d;
     }
-    hs = hde64s{};
-    const unsigned int len = hde64_disasm(bytes, &hs);
-    if ((hs.flags & F_ERROR) != 0 || len == 0)
+    const NDSTATUS status = NdDecodeEx(&d.ix, bytes, sizeof(bytes), ND_CODE_64, ND_DATA_64);
+    if (!ND_SUCCESS(status) || d.ix.Length == 0)
     {
-        return 0;
+        return d;
     }
-    return len;
+    d.length = d.ix.Length;
+    d.ok = true;
+    return d;
 }
 
-bool IsTerminatorOpcode(uint8_t opcode) noexcept
+int64_t SignExtend(uint32_t value, uint8_t sizeBytes) noexcept
 {
-    return opcode == 0xC3 || opcode == 0xC2 || opcode == 0xCB || opcode == 0xCA || opcode == 0xCC;
-}
-
-size_t ImmediateBytes(const hde64s& hs) noexcept
-{
-    if (hs.flags & F_IMM64) return 8;
-    if (hs.flags & F_IMM32) return 4;
-    if (hs.flags & F_IMM16) return 2;
-    if (hs.flags & F_IMM8) return 1;
-    return 0;
-}
-
-// Does the instruction at `ip` (already decoded into `hs`/`len`) carry a 4-byte
-// operand (rel32 branch or RIP-relative disp32 memory operand) whose field is
-// exactly at `dispAddr`?
-bool OperandIsAt(uintptr_t ip, const hde64s& hs, size_t len, uintptr_t dispAddr) noexcept
-{
-    // rel32 branch / call: E8, E9, 0F 8x. rel32 is the last 4 bytes.
-    if ((hs.flags & F_RELATIVE) != 0 && (hs.flags & F_IMM32) != 0 && len >= 4 && ip + len - 4 == dispAddr)
+    switch (sizeBytes)
     {
-        return true;
+    case 1: return static_cast<int8_t>(value);
+    case 2: return static_cast<int16_t>(value);
+    default: return static_cast<int32_t>(value);
     }
+}
 
-    // RIP-relative memory operand: modrm mod=00 rm=101, F_DISP32 set. The disp32
-    // precedes any immediate.
-    if ((hs.flags & F_DISP32) != 0 && hs.modrm_mod == 0 && hs.modrm_rm == 5)
+bool IsTerminator(const INSTRUX& ix) noexcept
+{
+    return ix.Category == ND_CAT_RET || ix.Instruction == ND_INS_INT3 || ix.Instruction == ND_INS_UD0 ||
+           ix.Instruction == ND_INS_UD1 || ix.Instruction == ND_INS_UD2;
+}
+
+// Does this instruction carry a 4-byte operand field exactly at `dispAddr` that
+// resolves to `target`? (rel32 branch, or RIP-relative disp32 memory operand)
+bool OperandResolvesTo(uintptr_t ip, const Decoded& d, uintptr_t dispAddr, uintptr_t target) noexcept
+{
+    const INSTRUX& ix = d.ix;
+    if (ix.HasRelOffs && ix.RelOffsLength == 4 && ip + ix.RelOffsOffset == dispAddr)
     {
-        const size_t immBytes = ImmediateBytes(hs);
-        if (len >= 4 + immBytes && ip + (len - 4 - immBytes) == dispAddr)
-        {
-            return true;
-        }
+        return ip + d.length + SignExtend(ix.RelativeOffset, ix.RelOffsLength) == target;
+    }
+    if (ix.HasDisp && ix.IsRipRelative && ix.DispLength == 4 && ip + ix.DispOffset == dispAddr)
+    {
+        return ip + d.length + SignExtend(ix.Displacement, ix.DispLength) == target;
     }
     return false;
 }
 
-// Instruction-validity gate anchored to the containing function (mirrors
-// Kananlib resolve_instruction): decode forward from the pdata function start
-// until the instruction that contains `dispAddr`, and check its operand field.
-// Rejects raw byte-window coincidences that fall inside another instruction.
-bool IsDecodedOperandAt(uintptr_t dispAddr) noexcept
+// Anchored instruction-validity gate (mirrors kananlib resolve_instruction):
+// decode forward from the pdata function start until the instruction that owns
+// `dispAddr`; accept only if that 4-byte operand field is exactly there and
+// resolves to `target`. Rejects raw windows that fall inside another instruction.
+bool IsDecodedOperandAt(uintptr_t dispAddr, uintptr_t target) noexcept
 {
     const auto functionStart = FunctionStartImpl(dispAddr, /*followChain=*/false);
     if (!functionStart || *functionStart > dispAddr)
@@ -282,25 +287,24 @@ bool IsDecodedOperandAt(uintptr_t dispAddr) noexcept
     }
 
     uintptr_t ip = *functionStart;
-    for (size_t guard = 0; guard < 4096 && ip <= dispAddr; ++guard)
+    for (size_t guard = 0; guard < 8192 && ip <= dispAddr; ++guard)
     {
-        hde64s hs{};
-        const size_t len = DecodeAt(ip, hs);
-        if (len == 0)
+        const Decoded d = DecodeAt(ip);
+        if (!d.ok)
         {
             return false;
         }
-        if (dispAddr < ip + len)
+        if (dispAddr < ip + d.length)
         {
-            return OperandIsAt(ip, hs, len, dispAddr);
+            return OperandResolvesTo(ip, d, dispAddr, target);
         }
-        ip += len;
+        ip += d.length;
     }
     return false;
 }
 
 // Scan [start, start+length-4] for a rel32/disp32 whose absolute target ==
-// `target` that is also a real decoded instruction operand.
+// `target` that is also a real decoded instruction operand resolving to it.
 std::optional<uintptr_t> RelReferenceScalar(uintptr_t start, size_t length, uintptr_t target,
                                             const std::function<bool(uintptr_t)>& filter)
 {
@@ -342,7 +346,7 @@ std::optional<uintptr_t> RelReferenceScalar(uintptr_t start, size_t length, uint
         {
             return std::nullopt;
         }
-        if (IsDecodedOperandAt(found) && (!filter || filter(found)))
+        if (IsDecodedOperandAt(found, target) && (!filter || filter(found)))
         {
             return found;
         }
@@ -351,39 +355,57 @@ std::optional<uintptr_t> RelReferenceScalar(uintptr_t start, size_t length, uint
     return std::nullopt;
 }
 
-// Signed rel operand value of a direct jump, plus its kind.
-struct DirectJump
+struct BranchInfo
 {
-    bool isJump{false};
-    bool unconditional{false};
-    uintptr_t target{};
+    enum Kind
+    {
+        NotABranch,
+        Call,
+        DirectUncond,
+        DirectCond,
+        IndirectResolvable,
+        IndirectUnresolvable,
+    } kind{NotABranch};
+    uintptr_t target{0};
 };
 
-DirectJump ClassifyJump(uintptr_t ip, const hde64s& hs, size_t len) noexcept
+BranchInfo ClassifyBranch(uintptr_t ip, const Decoded& d) noexcept
 {
-    DirectJump out{};
-    const uint8_t op = hs.opcode;
-    int64_t rel = 0;
+    const INSTRUX& ix = d.ix;
+    BranchInfo out{};
 
-    if (op == 0xEB) // jmp rel8
+    if (ix.Category == ND_CAT_CALL)
     {
-        rel = static_cast<int8_t>(hs.imm.imm8);
-        out = {true, true, ip + len + static_cast<uintptr_t>(rel)};
+        out.kind = BranchInfo::Call;
+        return out;
     }
-    else if (op == 0xE9) // jmp rel32
+    if (!ix.BranchInfo.IsBranch)
     {
-        rel = static_cast<int32_t>(hs.imm.imm32);
-        out = {true, true, ip + len + static_cast<uintptr_t>(rel)};
+        return out;
     }
-    else if (op >= 0x70 && op <= 0x7F) // jcc rel8
+
+    if (ix.BranchInfo.IsIndirect)
     {
-        rel = static_cast<int8_t>(hs.imm.imm8);
-        out = {true, false, ip + len + static_cast<uintptr_t>(rel)};
+        // jmp qword ptr [rip+disp32]: resolvable via its pointer slot.
+        if (ix.Category == ND_CAT_UNCOND_BR && ix.HasDisp && ix.IsRipRelative && ix.DispLength == 4)
+        {
+            const uintptr_t slot = ip + d.length + static_cast<uintptr_t>(SignExtend(ix.Displacement, 4));
+            uintptr_t ptr = 0;
+            if (TryReadBytes(slot, &ptr, sizeof(ptr)) && ptr != 0 && ptr != ip)
+            {
+                out.kind = BranchInfo::IndirectResolvable;
+                out.target = ptr;
+                return out;
+            }
+        }
+        out.kind = BranchInfo::IndirectUnresolvable;
+        return out;
     }
-    else if (op == 0x0F && hs.opcode2 >= 0x80 && hs.opcode2 <= 0x8F) // jcc rel32
+
+    if (ix.HasRelOffs)
     {
-        rel = static_cast<int32_t>(hs.imm.imm32);
-        out = {true, false, ip + len + static_cast<uintptr_t>(rel)};
+        out.target = ip + d.length + static_cast<uintptr_t>(SignExtend(ix.RelativeOffset, ix.RelOffsLength));
+        out.kind = ix.BranchInfo.IsConditional ? BranchInfo::DirectCond : BranchInfo::DirectUncond;
     }
     return out;
 }
@@ -517,14 +539,13 @@ std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::st
         return std::nullopt;
     }
 
-    // Bounded control-flow walk after Kananlib's exhaustive_decode: `maxSize` is
+    // Bounded control-flow walk after kananlib's exhaustive_decode: `maxSize` is
     // an instruction-count bound *per traversed path* (upstream calls this with
     // 1000), not a byte window. Follows direct and RIP-relative-indirect
     // unconditional jumps to their real target, queues conditional-branch
-    // targets, steps over CALLs, and stops at ret / int3 / decode error or an
-    // unresolvable unconditional jump. A global unique-instruction cap bounds
-    // total work; the pattern is only ever matched at a reachable instruction
-    // boundary.
+    // targets, steps over CALLs, and stops at ret / int3 / ud / decode error or
+    // an unresolvable indirect jump. A global unique-instruction cap bounds total
+    // work; the pattern is only ever matched at a reachable instruction boundary.
     std::vector<uintptr_t> worklist{ip};
     std::unordered_set<uintptr_t> visited;
     size_t globalBudget = (maxSize > 2048 ? maxSize : 2048) * 16;
@@ -534,16 +555,12 @@ std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::st
         uintptr_t cursor = worklist.back();
         worklist.pop_back();
 
-        for (size_t step = 0; step < maxSize && globalBudget > 0; ++step)
+        for (size_t step = 0; step < maxSize && globalBudget > 0;)
         {
+            ++step;
             --globalBudget;
 
-            if (!visited.insert(cursor).second)
-            {
-                break;
-            }
-
-            if (!IsReadableRange(cursor, 16))
+            if (!visited.insert(cursor).second || !IsReadableRange(cursor, ND_MAX_INSTRUCTION_LENGTH))
             {
                 break;
             }
@@ -552,48 +569,32 @@ std::optional<uintptr_t> FindPatternInPath(uintptr_t ip, size_t maxSize, std::st
                 return cursor;
             }
 
-            hde64s hs{};
-            const size_t len = DecodeAt(cursor, hs);
-            if (len == 0 || IsTerminatorOpcode(hs.opcode))
+            const Decoded d = DecodeAt(cursor);
+            if (!d.ok || IsTerminator(d.ix))
             {
                 break;
             }
 
-            // RIP-relative indirect JMP:  FF /4  with mod=00 rm=101.
-            if (hs.opcode == 0xFF && hs.modrm_reg == 4)
+            const BranchInfo b = ClassifyBranch(cursor, d);
+            if (b.kind == BranchInfo::DirectUncond || b.kind == BranchInfo::IndirectResolvable)
             {
-                if (hs.modrm_mod == 0 && hs.modrm_rm == 5 && (hs.flags & F_DISP32) != 0)
+                if (b.target != 0 && b.target != cursor)
                 {
-                    const uintptr_t slot = cursor + len + static_cast<intptr_t>(static_cast<int32_t>(hs.disp.disp32));
-                    uintptr_t target = 0;
-                    if (TryReadBytes(slot, &target, sizeof(target)) && target != 0 && target != cursor)
-                    {
-                        cursor = target;
-                        continue;
-                    }
+                    cursor = b.target;
+                    continue;
                 }
-                break; // never linearly fall through an unresolved indirect JMP
+                break; // dead-end / self-loop
+            }
+            if (b.kind == BranchInfo::IndirectUnresolvable)
+            {
+                break; // never linearly fall through an unresolved jump
+            }
+            if (b.kind == BranchInfo::DirectCond && b.target != 0)
+            {
+                worklist.push_back(b.target);
             }
 
-            const DirectJump jump = ClassifyJump(cursor, hs, len);
-            if (jump.isJump)
-            {
-                if (jump.unconditional)
-                {
-                    if (jump.target != 0 && jump.target != cursor)
-                    {
-                        cursor = jump.target;
-                        continue;
-                    }
-                    break;
-                }
-                if (jump.target != 0)
-                {
-                    worklist.push_back(jump.target);
-                }
-            }
-
-            cursor += len;
+            cursor += d.length; // fall through (also the CALL step-over path)
         }
     }
     return std::nullopt;

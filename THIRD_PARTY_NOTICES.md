@@ -3,8 +3,9 @@
 Capcom Patcher incorporates or adapts code from the following projects. The
 `onehoon/OptiPatcher` and `praydog/REFramework` material is MIT-licensed;
 `TsudaKageyu/MinHook` uses a BSD-2-Clause-style license; `cursey/kananlib` uses
-the Boost Software License 1.0. The original copyright and permission notices are
-reproduced below as required.
+the Boost Software License 1.0; `bitdefender/bddisasm` uses the Apache License
+2.0. The original copyright and permission notices are reproduced below as
+required.
 
 ---
 
@@ -135,8 +136,8 @@ same one used by `praydog/REFramework@b6baf6b`:
 `8c27b656734355db0f2893581fd62e838fa130ad` (`src/Scan.cpp`, `src/Thread.cpp`).
 
 No kananlib source files are vendored; `src/memory/*` are fresh implementations
-that adapt these algorithms (using `RtlLookupFunctionEntry` and the vendored
-HDE64 length disassembler in place of kananlib's bddisasm dependency).
+that adapt these algorithms, using `RtlLookupFunctionEntry` for unwind info and
+the same pinned `bitdefender/bddisasm` decoder kananlib itself uses (see below).
 
 ```
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -162,4 +163,32 @@ SHALL THE COPYRIGHT HOLDERS OR ANYONE DISTRIBUTING THE SOFTWARE BE LIABLE
 FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+---
+
+## bitdefender/bddisasm
+
+x86-64 instruction decoder used by the PR2 DD2-family scan helpers
+(`src/memory/MemoryScan.cpp`), so they have the same VEX/EVEX/XOP coverage as the
+pinned REFramework path. Vendored under `third_party/bddisasm/` (decoder only, no
+formatter/emulator) at the exact revision `praydog/REFramework@b6baf6b` uses:
+`70db095765ab2066dd88dfb7bbcc42259ed167c5`. Sources are unmodified.
+Full text: `third_party/bddisasm/LICENSE`.
+
+```
+Copyright (c) 2020 Bitdefender
+SPDX-License-Identifier: Apache-2.0
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
