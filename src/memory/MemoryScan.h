@@ -37,6 +37,10 @@
 
 #include <windows.h>
 
+extern "C" {
+#include <bddisasm.h>
+}
+
 namespace memory
 {
 struct ModuleRange
@@ -60,10 +64,15 @@ bool TryReadBytes(uintptr_t address, void* out, size_t size) noexcept;
 // True when [address, address+size) is committed and readable.
 bool IsReadable(uintptr_t address, size_t size) noexcept;
 
-// First occurrence of a space-separated hex pattern ("39 0C 82 74 ?", "?"/"??"
-// are wildcards) within [start, start+length). Nullopt if not found.
+// First occurrence of a space-separated hex pattern within [start, start+length).
+// "?"/"??" are single-byte wildcards. Kananlib-style segment globs are supported:
+//   "AA BB * CC DD"     next segment may start within DEFAULT_GLOB_MAX_GAP (256)
+//   "AA BB *[5] CC DD"  next segment may start 0..5 bytes after the previous one
+// On a later-segment failure the scan retries from the next first-segment hit.
 std::optional<uintptr_t> Scan(uintptr_t start, size_t length, std::string_view pattern);
 std::optional<uintptr_t> Scan(const ModuleRange& range, std::string_view pattern);
+
+inline constexpr size_t kDefaultGlobMaxGap = 256; // matches kananlib DEFAULT_GLOB_MAX_GAP
 
 // 8-byte-aligned search for the pointer value `ptr` inside the module image
 // (e.g. an IAT slot holding &QueryPerformanceCounter). Returns the slot address.
@@ -95,4 +104,48 @@ std::optional<uintptr_t> FindFunctionWithRefs(const ModuleRange& range, const st
 
 // scan_string -> scan_displacement_reference -> find_function_start.
 std::optional<uintptr_t> FindFunctionFromStringRef(const ModuleRange& range, std::string_view text);
+
+// ---- public decoder (shared bddisasm; used by RE9-family) ----------------
+
+struct DecodedInstruction
+{
+    uintptr_t address{};
+    INSTRUX instrux{};
+    size_t length{};
+};
+
+// SEH-guarded single-instruction decode. Nullopt on unreadable / decode error.
+std::optional<DecodedInstruction> DecodeOne(uintptr_t address) noexcept;
+
+struct LinearDecodeStep
+{
+    DecodedInstruction insn;
+    uintptr_t next{};   // where decoding resumes; default insn.address + insn.length
+    bool stop{false};   // set true to end the walk
+};
+
+// Linear (fall-through) decode of up to `maxInstructions` from `start`. The
+// callback receives each step by reference and may set `stop` or adjust `next`
+// (e.g. `step.next += 1` to skip a byte after a RET, as REF's linear_decode
+// does). Ends on decode failure or `maxInstructions`.
+template <class Callback>
+inline void LinearDecode(uintptr_t start, size_t maxInstructions, Callback&& callback)
+{
+    uintptr_t ip = start;
+    for (size_t i = 0; i < maxInstructions; ++i)
+    {
+        const auto decoded = DecodeOne(ip);
+        if (!decoded)
+        {
+            return;
+        }
+        LinearDecodeStep step{*decoded, decoded->address + decoded->length, false};
+        callback(step);
+        if (step.stop)
+        {
+            return;
+        }
+        ip = step.next;
+    }
+}
 } // namespace memory

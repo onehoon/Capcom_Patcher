@@ -5,6 +5,7 @@
 #include "GameProfile.h"
 #include "antitamper/DD2FamilyBypass.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
+#include "antitamper/RE9FamilyBypass.h"
 #include "antitamper/RuntimeGuards.h"
 
 #include <cstdio>
@@ -50,14 +51,19 @@ extern "C" __declspec(dllexport) void InitializeASI()
     // before the game-memory-touching layers, matching REFramework's order.
     antitamper::runtime_guards::PostLoadInitialize();
 
-    // DD2-family direct anti-tamper core, before the DbgUi watcher.
+    // DD2-family direct anti-tamper core.
     if (profile.dd2Family)
     {
         antitamper::dd2_family::Initialize(profile);
     }
 
-    // PR0/PR1 execute the DbgUiRemoteBreakin layer. The RE9/heartbeat flags are
-    // declarative scaffolding for later PRs.
+    // RE9-family scheduler/job corruption defense (+ RE9-only slow-path).
+    if (profile.re9Family)
+    {
+        antitamper::re9_family::Initialize(profile);
+    }
+
+    // DbgUiRemoteBreakin watcher last.
     if (profile.dbgUiWatcher)
     {
         if (antitamper::dbg_ui::Initialize())
