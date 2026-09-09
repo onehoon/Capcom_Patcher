@@ -59,6 +59,25 @@ Reference commit used during analysis:
 
 - `src/mods/IntegrityCheckBypass.cpp`
 
+PR1 additionally adapts the common runtime guards (`setup_pristine_syscall()`,
+`fix_virtual_protect()`, VEH and `RtlExitUserProcess` guards); PR2 the DD2-family
+core (`immediate_patch_dd2()`); PR3 the RE9-family job guard
+(`immediate_patch_re9()`).
+
+PR4 adapts the standalone renderer heartbeat bypass
+(`IntegrityCheckBypass::re9_heartbeat_bypass()` and its `on_frame()` cadence),
+together with the **minimal** RE Engine mechanics its frame source needs — the
+VM context / TDB discovery of `shared/sdk/REContext.cpp`, the TDB 82 / 83 subset
+of `shared/sdk/RETypeDB.hpp` / `RETypeDB.cpp` / `RETypeDefDispatch.hpp`
+(`RETypeDefinition` / `RETypeImpl` / `REMethodDefinition` layouts, type / method /
+string-pool resolution), the `get_name` / `get_namespace` reconstruction of
+`shared/sdk/RETypeDefinition.cpp`, and the native-singleton `vtable[1]` call of
+`shared/sdk/REType.cpp`. The versioned structs are mirrored in
+`src/reengine/MinimalReTdb.h` with `static_assert` layout checks; only what is
+required to resolve `via.render.Renderer.get_RenderFrame()` on TDB 82 / 83 is
+carried over. The full REFramework `shared/sdk/` reflection tree is **not**
+imported and is not a runtime dependency.
+
 ```
 MIT License
 

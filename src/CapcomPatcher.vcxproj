@@ -104,6 +104,9 @@
     <ClInclude Include="antitamper\RuntimeGuards.h" />
     <ClInclude Include="antitamper\DD2FamilyBypass.h" />
     <ClInclude Include="antitamper\RE9FamilyBypass.h" />
+    <ClInclude Include="antitamper\RendererHeartbeatBypass.h" />
+    <ClInclude Include="reengine\MinimalReTdb.h" />
+    <ClInclude Include="reengine\RendererBridge.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -126,6 +129,8 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <ConformanceMode>false</ConformanceMode>
     </ClCompile>
+    <ClCompile Include="reengine\RendererBridge.cpp" />
+    <ClCompile Include="antitamper\RendererHeartbeatBypass.cpp" />
   </ItemGroup>
   <ItemGroup>
     <!-- Vendored SafetyHook (cursey/safetyhook @ b046e123, Windows x64 only).

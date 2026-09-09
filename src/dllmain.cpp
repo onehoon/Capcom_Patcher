@@ -6,6 +6,7 @@
 #include "antitamper/DD2FamilyBypass.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
 #include "antitamper/RE9FamilyBypass.h"
+#include "antitamper/RendererHeartbeatBypass.h"
 #include "antitamper/RuntimeGuards.h"
 
 #include <cstdio>
@@ -61,6 +62,13 @@ extern "C" __declspec(dllexport) void InitializeASI()
     if (profile.re9Family)
     {
         antitamper::re9_family::Initialize(profile);
+    }
+
+    // Standalone renderer heartbeat synchronization (TDB82/83 five-game set;
+    // never MHW). Starts a single process-lifetime worker; no swapchain hook.
+    if (profile.heartbeat)
+    {
+        antitamper::heartbeat::Initialize(profile);
     }
 
     // DbgUiRemoteBreakin watcher last.

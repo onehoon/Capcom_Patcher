@@ -37,6 +37,12 @@
     <Filter Include="Header Files\memory">
       <UniqueIdentifier>{a1b2c3d4-0007-4000-8000-000000000007}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\reengine">
+      <UniqueIdentifier>{a1b2c3d4-000b-4000-8000-00000000000b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\reengine">
+      <UniqueIdentifier>{a1b2c3d4-000c-4000-8000-00000000000c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -65,6 +71,15 @@
     </ClInclude>
     <ClInclude Include="antitamper\RE9FamilyBypass.h">
       <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="antitamper\RendererHeartbeatBypass.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="reengine\MinimalReTdb.h">
+      <Filter>Header Files\reengine</Filter>
+    </ClInclude>
+    <ClInclude Include="reengine\RendererBridge.h">
+      <Filter>Header Files\reengine</Filter>
     </ClInclude>
     <ClInclude Include="memory\MemoryScan.h">
       <Filter>Header Files\memory</Filter>
@@ -103,6 +118,12 @@
     </ClCompile>
     <ClCompile Include="antitamper\RE9FamilyBypass.cpp">
       <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="antitamper\RendererHeartbeatBypass.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="reengine\RendererBridge.cpp">
+      <Filter>Source Files\reengine</Filter>
     </ClCompile>
     <ClCompile Include="..\third_party\safetyhook\src\allocator.cpp">
       <Filter>third_party\safetyhook</Filter>
