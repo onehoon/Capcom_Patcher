@@ -90,6 +90,12 @@
     <ClInclude Include="memory\ThreadSuspension.h">
       <Filter>Header Files\memory</Filter>
     </ClInclude>
+    <ClInclude Include="memory\Emulation.h">
+      <Filter>Header Files\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="antitamper\PeHeaderIntegrityBypass.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -158,6 +164,12 @@
     <ClCompile Include="memory\ThreadSuspension.cpp">
       <Filter>Source Files\memory</Filter>
     </ClCompile>
+    <ClCompile Include="memory\Emulation.cpp">
+      <Filter>Source Files\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="antitamper\PeHeaderIntegrityBypass.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
     <ClCompile Include="..\third_party\minhook\src\buffer.c">
       <Filter>third_party\minhook</Filter>
     </ClCompile>
@@ -174,6 +186,9 @@
       <Filter>third_party\bddisasm</Filter>
     </ClCompile>
     <ClCompile Include="..\third_party\bddisasm\bddisasm\crt.c">
+      <Filter>third_party\bddisasm</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\bddisasm\bdshemu\bdshemu.c">
       <Filter>third_party\bddisasm</Filter>
     </ClCompile>
   </ItemGroup>
