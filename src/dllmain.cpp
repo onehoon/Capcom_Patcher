@@ -8,6 +8,7 @@
 #include "antitamper/PeHeaderIntegrityBypass.h"
 #include "antitamper/RE9FamilyBypass.h"
 #include "antitamper/RendererHeartbeatBypass.h"
+#include "antitamper/StackDestroyerBypass.h"
 #include "antitamper/RuntimeGuards.h"
 
 #include <cstdio>
@@ -44,9 +45,9 @@ extern "C" __declspec(dllexport) void InitializeASI()
     char message[256]{};
     _snprintf_s(message, sizeof(message), _TRUNCATE,
                 "[CapcomPatcher] detected %ls (dbgUiWatcher=%d dd2Family=%d dd2ScannerCrasher=%d "
-                "re9Family=%d re9SlowPath=%d heartbeat=%d)",
+                "re9Family=%d re9SlowPath=%d heartbeat=%d stackDestroyer=%d)",
                 profile.canonicalName, profile.dbgUiWatcher, profile.dd2Family, profile.dd2ScannerCrasher,
-                profile.re9Family, profile.re9SlowPath, profile.heartbeat);
+                profile.re9Family, profile.re9SlowPath, profile.heartbeat, profile.stackDestroyer);
     Log(message);
 
     // Common runtime guard (VirtualProtect / NtProtectVirtualMemory integrity)
@@ -65,6 +66,13 @@ extern "C" __declspec(dllexport) void InitializeASI()
         antitamper::re9_family::Initialize(profile);
         // RE9-family PE-header integrity-check redirection (one-shot, fail-closed).
         antitamper::pe_header::Initialize(profile);
+    }
+
+    // Stack-destroyer neutralization (one-shot, fail-closed). Opt-in for all six
+    // explicit games - runs for MHW too, so it is outside the re9Family block.
+    if (profile.stackDestroyer)
+    {
+        antitamper::stack_destroyer::Initialize(profile);
     }
 
     // Standalone renderer heartbeat synchronization (TDB82/83 five-game set;

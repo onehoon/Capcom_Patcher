@@ -32,6 +32,9 @@ struct GameProfile
     bool re9Family{false};
     bool re9SlowPath{false};
     bool heartbeat{false};
+    // REFramework remove_stack_destroyer(): opt-in for all six explicit games
+    // (fail-closed - the signature is absent on most sampled builds).
+    bool stackDestroyer{false};
 };
 
 // Resolve a profile from an executable file name (e.g. L"DD2.exe").

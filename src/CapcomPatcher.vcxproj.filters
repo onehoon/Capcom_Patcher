@@ -96,6 +96,9 @@
     <ClInclude Include="antitamper\PeHeaderIntegrityBypass.h">
       <Filter>Header Files\antitamper</Filter>
     </ClInclude>
+    <ClInclude Include="antitamper\StackDestroyerBypass.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -168,6 +171,9 @@
       <Filter>Source Files\memory</Filter>
     </ClCompile>
     <ClCompile Include="antitamper\PeHeaderIntegrityBypass.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="antitamper\StackDestroyerBypass.cpp">
       <Filter>Source Files\antitamper</Filter>
     </ClCompile>
     <ClCompile Include="..\third_party\minhook\src\buffer.c">

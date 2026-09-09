@@ -97,9 +97,21 @@ never used as an automatic opt-in for future Capcom games.
   `cursey/kananlib@8c27b65` `utility::emulate`. Stack-destroyer and module-path
   layers are **not** included.
 
+- **PR6** — the RE9-family "stack destroyer" mitigation from REFramework
+  `IntegrityCheckBypass::remove_stack_destroyer()`. Scans the whole main image
+  for the exact 18-byte routine (`mov [rcx],rdx` / `mov qword [rsp],0` /
+  `add rsp,0x128`), decode-validates the three instructions with `bddisasm`,
+  requires the hit to be a proven function entry, and — only when **exactly one**
+  candidate survives (zero = no-op, more than one = fail-closed) — neutralizes it
+  by writing a single `C3` (`RET`) at the entry via the PR2
+  `BytePatchCandidate` / thread-suspension path with a pre-suspension uniqueness
+  re-check and under-suspension revalidation of the full 18-byte context.
+  Opt-in for all six explicit games (MHW included); one-shot at startup, no
+  worker / hook / trampoline / allocation.
+
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
-layers — stack-destroyer mitigation, module-path spoofing review — are deferred
-to later PRs as described in
+architecture item — module-path spoofing review / classification — plus the
+selected-game runtime validation phase are deferred as described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build
