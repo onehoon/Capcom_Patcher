@@ -172,14 +172,9 @@ bool RendererBridge::ResolveVmContext() noexcept
     }
 
     // REContext.cpp: count references to the same resolved context pointer;
-    // > 10 identical resolutions is "for sure the right one".
-    struct Ref
-    {
-        uintptr_t value{};
-        uint32_t count{};
-    };
-    Ref refs[64]{};
-    size_t refCount = 0;
+    // > 10 identical resolutions is "for sure the right one". No cap on the
+    // number of distinct candidate addresses (matches upstream's unordered_map).
+    detail::RepeatedReferenceCounter refs;
     uintptr_t winner = 0;
     uintptr_t winnerHit = 0;
 
@@ -197,22 +192,11 @@ bool RendererBridge::ResolveVmContext() noexcept
             return true;
         }
 
-        for (size_t i = 0; i < refCount; ++i)
+        if (refs.Add(ctxRef))
         {
-            if (refs[i].value == ctxRef)
-            {
-                if (++refs[i].count > 10)
-                {
-                    winner = ctxRef;
-                    winnerHit = hit;
-                    return false;
-                }
-                return true;
-            }
-        }
-        if (refCount < std::size(refs))
-        {
-            refs[refCount++] = Ref{ctxRef, 1};
+            winner = ctxRef;
+            winnerHit = hit;
+            return false;
         }
         return true;
     });

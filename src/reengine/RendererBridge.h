@@ -18,11 +18,33 @@
 
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 
 #include "../GameProfile.h"
 
 namespace reengine
 {
+namespace detail
+{
+// REFramework's VM-context discovery counts references to each resolved context
+// pointer and accepts one only after it repeats > kThreshold times. This mirrors
+// the unbounded `std::unordered_map<uintptr_t, uint32_t>` upstream uses - no
+// fixed cap on the number of distinct candidate addresses.
+struct RepeatedReferenceCounter
+{
+    static constexpr uint32_t kThreshold = 10;
+
+    // Returns true once `ref` has been observed more than kThreshold times
+    // (i.e. this is "for sure the right one" in REFramework's words).
+    bool Add(uintptr_t ref)
+    {
+        return ++counts[ref] > kThreshold;
+    }
+
+    std::unordered_map<uintptr_t, uint32_t> counts;
+};
+} // namespace detail
+
 enum class ResolveStatus
 {
     Ready,             // frameSource fully populated

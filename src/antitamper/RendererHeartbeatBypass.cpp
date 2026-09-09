@@ -12,6 +12,10 @@
 #include <mutex>
 #include <thread>
 
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
 // Behavioral source: praydog/REFramework @ b6baf6b
 // (src/mods/IntegrityCheckBypass.cpp: re9_heartbeat_bypass / on_frame).
 // REFramework: Copyright (c) 2019 praydog, MIT License. See THIRD_PARTY_NOTICES.md.
@@ -208,10 +212,62 @@ bool CallGetRenderFrame(uint32_t (*fn)(), uint32_t& out) noexcept
     }
 }
 
+// High-resolution 1 ms wait for the active discovery/sync cadence. The work
+// order requires this and forbids timeBeginPeriod(); CREATE_WAITABLE_TIMER_HIGH_
+// RESOLUTION (Win10 1803+) gives a fine short expiration without the global
+// timer-resolution side effect. Falls back to Sleep(1) (logged once).
+class ActiveTicker
+{
+public:
+    ActiveTicker()
+        : m_timer(CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                         TIMER_MODIFY_STATE | SYNCHRONIZE))
+    {
+    }
+    ~ActiveTicker()
+    {
+        if (m_timer != nullptr)
+        {
+            CloseHandle(m_timer);
+        }
+    }
+    ActiveTicker(const ActiveTicker&) = delete;
+    ActiveTicker& operator=(const ActiveTicker&) = delete;
+
+    bool HighResolution() const noexcept { return m_timer != nullptr; }
+
+    void Wait() noexcept
+    {
+        if (m_timer != nullptr)
+        {
+            LARGE_INTEGER due{};
+            due.QuadPart = -10000LL; // relative 1 ms, 100 ns units
+            if (SetWaitableTimerEx(m_timer, &due, 0, nullptr, nullptr, nullptr, 0) &&
+                WaitForSingleObject(m_timer, INFINITE) == WAIT_OBJECT_0)
+            {
+                return;
+            }
+        }
+        if (!m_warned)
+        {
+            Log("[CapcomPatcher][Heartbeat] high-resolution timer unavailable; active cadence falls back to Sleep(1)");
+            m_warned = true;
+        }
+        Sleep(1);
+    }
+
+private:
+    HANDLE m_timer{};
+    bool m_warned{false};
+};
+
 void WorkerLoop()
 {
     reengine::RendererBridge bridge{g_expectedTdb};
     detail::Confirmation discovery;
+    ActiveTicker activeTicker;
+    Log("[CapcomPatcher][Heartbeat] active-tick timer: %s",
+        activeTicker.HighResolution() ? "high-resolution" : "Sleep(1) fallback");
 
     void* trackedRenderer = nullptr;
     uint32_t lastScanFrame = 0;
@@ -377,7 +433,7 @@ void WorkerLoop()
                 }
                 lastSyncFrame = frameCount;
             }
-            Sleep(1);
+            activeTicker.Wait();
             continue;
         }
 
@@ -432,7 +488,14 @@ void WorkerLoop()
             }
         }
 
-        Sleep(frameCount <= 100 ? 5 : 1);
+        if (frameCount <= 100)
+        {
+            Sleep(5);
+        }
+        else
+        {
+            activeTicker.Wait();
+        }
     }
 }
 } // namespace
