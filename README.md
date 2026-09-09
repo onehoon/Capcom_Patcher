@@ -55,18 +55,30 @@ never used as an automatic opt-in for future Capcom games.
   `bitdefender/bddisasm@70db095` `NdDecodeEx` for full VEX/EVEX/XOP coverage).
   PAK/natives, RE9-family, heartbeat and
   stack-destroyer behavior are **not** included.
+- **PR3** — the RE9-family scheduler/job corruption defense from REFramework
+  `IntegrityCheckBypass::immediate_patch_re9()`: the RE9+/BushClover suspicious
+  constant patch and the JobQueue callsite mid-hooks (all `re9Family` profiles —
+  DD2/RE9/PRAGMATA/Onimusha/MHS3, never MHW), plus the RE9-only slow-path
+  discriminator NOP. The mid-hooks validate the pending job function pointer,
+  restore a cached legitimate pointer on UD2 corruption, or substitute a
+  harmless `noop_job`. Uses vendored SafetyHook (`cursey/safetyhook@b046e123`)
+  with its pinned Zydis v4.0.0 decoder; `memory::Scan` gains kananlib `*[N]`
+  segment-glob support. PE-header integrity redirection, heartbeat,
+  stack-destroyer and module-path layers are **not** included.
 
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
-layers — RE9-family bypass, JobQueue fallback, renderer heartbeat,
-stack-destroyer scan, module-path spoofing — are deferred to later PRs as
-described in
+layers — PE-header integrity redirection, renderer heartbeat, stack-destroyer
+scan, module-path spoofing — are deferred to later PRs as described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build
 
 Open `CapcomPatcher.sln` in Visual Studio 2022 (MSVC v143, Windows 10/11 SDK) and
 build `x64 | Debug` or `x64 | Release`. Output: `CapcomPatcher.asi`.
-MinHook is vendored under `third_party/minhook/`; no submodule init is required.
+All third-party code is vendored under `third_party/` — no submodule init.
+The project is C++20; the vendored SafetyHook and `RE9FamilyBypass.cpp` are
+compiled per-file with `/std:c++latest` (SafetyHook needs `std::expected`), so a
+recent VS 2022 (17.3+) is required.
 
 ## License
 

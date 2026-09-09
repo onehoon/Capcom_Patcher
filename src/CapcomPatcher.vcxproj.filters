@@ -25,6 +25,12 @@
     <Filter Include="third_party\bddisasm">
       <UniqueIdentifier>{a1b2c3d4-0008-4000-8000-000000000008}</UniqueIdentifier>
     </Filter>
+    <Filter Include="third_party\safetyhook">
+      <UniqueIdentifier>{a1b2c3d4-0009-4000-8000-000000000009}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="third_party\zydis">
+      <UniqueIdentifier>{a1b2c3d4-000a-4000-8000-00000000000a}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\memory">
       <UniqueIdentifier>{a1b2c3d4-0006-4000-8000-000000000006}</UniqueIdentifier>
     </Filter>
@@ -55,6 +61,9 @@
       <Filter>Header Files\antitamper</Filter>
     </ClInclude>
     <ClInclude Include="antitamper\DD2FamilyBypass.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="antitamper\RE9FamilyBypass.h">
       <Filter>Header Files\antitamper</Filter>
     </ClInclude>
     <ClInclude Include="memory\MemoryScan.h">
@@ -91,6 +100,33 @@
     </ClCompile>
     <ClCompile Include="antitamper\DD2FamilyBypass.cpp">
       <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="antitamper\RE9FamilyBypass.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\allocator.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\easy.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\inline_hook.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\mid_hook.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\os.windows.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\utility.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\vmt_hook.cpp">
+      <Filter>third_party\safetyhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\zydis\Zydis.c">
+      <Filter>third_party\zydis</Filter>
     </ClCompile>
     <ClCompile Include="memory\MemoryScan.cpp">
       <Filter>Source Files\memory</Filter>

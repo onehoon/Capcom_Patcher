@@ -61,7 +61,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;$(ProjectDir)..\third_party\safetyhook\include;$(ProjectDir)..\third_party\zydis;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -81,7 +81,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;$(ProjectDir)..\third_party\bddisasm\inc;$(ProjectDir)..\third_party\safetyhook\include;$(ProjectDir)..\third_party\zydis;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -103,6 +103,7 @@
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h" />
     <ClInclude Include="antitamper\RuntimeGuards.h" />
     <ClInclude Include="antitamper\DD2FamilyBypass.h" />
+    <ClInclude Include="antitamper\RE9FamilyBypass.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -119,6 +120,78 @@
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp" />
     <ClCompile Include="antitamper\RuntimeGuards.cpp" />
     <ClCompile Include="antitamper\DD2FamilyBypass.cpp" />
+    <ClCompile Include="antitamper\RE9FamilyBypass.cpp">
+      <!-- SafetyHook needs std::expected (C++23); the rest of the project stays C++20. -->
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored SafetyHook (cursey/safetyhook @ b046e123, Windows x64 only).
+         C++23, no PCH, warnings off; see third_party/safetyhook/PINNED_REVISION.md. -->
+    <ClCompile Include="..\third_party\safetyhook\src\allocator.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\easy.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\inline_hook.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+      <PreprocessorDefinitions>ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\mid_hook.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\os.windows.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\utility.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\safetyhook\src\vmt_hook.cpp">
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored Zydis v4.0.0 amalgamated (bundles zycore @ 1401fb85). SafetyHook's
+         decoder only. Compiled as one C TU; see third_party/zydis/PINNED_REVISION.md. -->
+    <ClCompile Include="..\third_party\zydis\Zydis.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+      <PreprocessorDefinitions>ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <!-- Vendored MinHook (TsudaKageyu/minhook @ 98b74f1). Compiled as C, no PCH,

@@ -3,13 +3,11 @@
 #include "MemoryScan.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <unordered_set>
-
-extern "C" {
-#include <bddisasm.h>
-}
 
 namespace memory
 {
@@ -154,6 +152,130 @@ std::optional<uintptr_t> ScanParsed(uintptr_t start, size_t length, const std::v
             continue;
         }
         return found != 0 ? std::optional<uintptr_t>{found} : std::nullopt;
+    }
+    return std::nullopt;
+}
+
+// ---- segment glob (kananlib Pattern.cpp shape) -----------------------
+
+struct PatternSegment
+{
+    std::vector<PatternByte> bytes;
+    size_t maxGapBefore{0}; // 0 for the first segment
+};
+
+// Split a pattern string on `*` / `*[N]` tokens into segments.
+std::vector<PatternSegment> CompilePattern(std::string_view mask)
+{
+    std::vector<PatternSegment> segments;
+    std::string current;
+    std::vector<size_t> gaps; // gap declared before segment i (i>=1)
+
+    size_t i = 0;
+    while (i < mask.size())
+    {
+        while (i < mask.size() && mask[i] == ' ')
+        {
+            ++i;
+        }
+        if (i >= mask.size())
+        {
+            break;
+        }
+        const size_t tokStart = i;
+        while (i < mask.size() && mask[i] != ' ')
+        {
+            ++i;
+        }
+        const std::string_view tok = mask.substr(tokStart, i - tokStart);
+
+        if (!tok.empty() && tok[0] == '*')
+        {
+            segments.push_back({ParsePattern(current), 0});
+            current.clear();
+
+            size_t gap = kDefaultGlobMaxGap;
+            if (tok.size() > 2 && tok[1] == '[')
+            {
+                const size_t close = tok.find(']', 2);
+                if (close != std::string_view::npos)
+                {
+                    std::from_chars(tok.data() + 2, tok.data() + close, gap);
+                }
+            }
+            gaps.push_back(gap);
+        }
+        else
+        {
+            if (!current.empty())
+            {
+                current += ' ';
+            }
+            current += tok;
+        }
+    }
+    if (!current.empty())
+    {
+        segments.push_back({ParsePattern(current), 0});
+    }
+
+    for (size_t s = 1; s < segments.size() && s - 1 < gaps.size(); ++s)
+    {
+        segments[s].maxGapBefore = gaps[s - 1];
+    }
+    return segments;
+}
+
+// Multi-segment match: find segment 0, then each later segment within its gap
+// window; retry from the next segment-0 hit on failure. Returns segment-0 start.
+std::optional<uintptr_t> ScanCompiled(uintptr_t start, size_t length,
+                                      const std::vector<PatternSegment>& segments)
+{
+    if (segments.empty() || segments[0].bytes.empty())
+    {
+        return std::nullopt;
+    }
+    if (segments.size() == 1)
+    {
+        return ScanParsed(start, length, segments[0].bytes);
+    }
+
+    const uintptr_t end = start + length;
+    uintptr_t searchStart = start;
+    while (searchStart < end)
+    {
+        const auto seg0 = ScanParsed(searchStart, end - searchStart, segments[0].bytes);
+        if (!seg0)
+        {
+            return std::nullopt;
+        }
+
+        uintptr_t cursor = *seg0 + segments[0].bytes.size();
+        bool allFound = true;
+        for (size_t s = 1; s < segments.size(); ++s)
+        {
+            const auto& seg = segments[s];
+            const size_t segLen = seg.bytes.size();
+            const uintptr_t windowEnd = (std::min)(cursor + seg.maxGapBefore + segLen, end);
+            if (cursor >= windowEnd || windowEnd - cursor < segLen)
+            {
+                allFound = false;
+                break;
+            }
+            const auto hit = ScanParsed(cursor, windowEnd - cursor, seg.bytes);
+            if (!hit)
+            {
+                allFound = false;
+                break;
+            }
+            cursor = *hit + segLen;
+        }
+
+        if (allFound)
+        {
+            return *seg0;
+        }
+        searchStart = *seg0 + 1;
     }
     return std::nullopt;
 }
@@ -449,12 +571,22 @@ bool IsReadable(uintptr_t address, size_t size) noexcept
 
 std::optional<uintptr_t> Scan(uintptr_t start, size_t length, std::string_view pattern)
 {
-    return ScanParsed(start, length, ParsePattern(pattern));
+    return ScanCompiled(start, length, CompilePattern(pattern));
 }
 
 std::optional<uintptr_t> Scan(const ModuleRange& range, std::string_view pattern)
 {
-    return range ? ScanParsed(range.base, range.size, ParsePattern(pattern)) : std::nullopt;
+    return range ? ScanCompiled(range.base, range.size, CompilePattern(pattern)) : std::nullopt;
+}
+
+std::optional<DecodedInstruction> DecodeOne(uintptr_t address) noexcept
+{
+    const Decoded d = DecodeAt(address);
+    if (!d.ok)
+    {
+        return std::nullopt;
+    }
+    return DecodedInstruction{address, d.ix, d.length};
 }
 
 std::optional<uintptr_t> ScanPointer(const ModuleRange& range, uintptr_t ptr)
