@@ -963,6 +963,8 @@ However, module-path checks remain a tracked investigation item. If OptiScaler's
 
 This is an intentional architecture-context distinction, not a claim that the upstream code is unnecessary.
 
+**PR7 review (2026-09-09):** `doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md` audited the exact upstream implementation (`cursey/kananlib@8c27b65` `src/Module.cpp:479` — it rewrites only `LDR_DATA_TABLE_ENTRY.FullDllName` for DLLs whose loader directory is the game exe directory, backed by a `_storage_` file copy) against the current OptiScaler fork (`onehoon/OptiScaler@3809b221` `LoadAsiPlugins()` loads `CapcomPatcher.asi` verbatim from `<MainDllPath>\plugins` with all four path identities consistent and no relocation; `LoadLibraryExW_Ldr` / `hkLdrLoadDll` do no path rewriting; no `_storage_` equivalent). Classification: **`INCONCLUSIVE`**, leaning `NOT_APPLICABLE` for the default topology. The mechanical preconditions REFramework compensates for are absent in the default install, but (a) a non-default `PluginPath = <gamedir>` recreates the game-root-DLL state and (b) no selected-game loader-path check was located and no runtime identity observation was possible. Module-path spoofing stays **deferred**; the analysis names the read-only evidence-collection tasks that resolve it, to be run in the six-game runtime validation phase. No production spoof / `_storage_` / PEB write was added.
+
 ### 18.6 Disabled historical MHS3 code
 
 Do not import code currently disabled with `#if 0`, including the old UD2-writer-anchor fallback, unless a future upstream change reactivates it and provides a reason.

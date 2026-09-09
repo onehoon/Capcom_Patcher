@@ -108,10 +108,24 @@ never used as an automatic opt-in for future Capcom games.
   re-check and under-suspension revalidation of the full 18-byte context.
   Opt-in for all six explicit games (MHW included); one-shot at startup, no
   worker / hook / trampoline / allocation.
+- **PR7** — module-path spoofing review / classification (documentation only, no
+  production code). REFramework's `utility::spoof_module_paths_in_exe_dir()`
+  (`cursey/kananlib@8c27b65`) rewrites `LDR_DATA_TABLE_ENTRY.FullDllName` for
+  DLLs whose loader directory is the game executable directory, backed by a
+  REFramework-owned copy into a game-local `_storage_`. The current OptiScaler
+  fork (`onehoon/OptiScaler@3809b221`) loads `CapcomPatcher.asi` verbatim from
+  its configured plugin subdirectory with all four path identities (disk /
+  loader-input / `GetModuleFileNameW` / PEB) consistent and no relocation.
+  Conclusion: **`INCONCLUSIVE`**, leaning `NOT_APPLICABLE` for the default
+  topology; module-path spoofing stays deferred pending the runtime evidence
+  named in
+  [`doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md`](doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md).
 
-**This does not yet provide full REFramework anti-tamper parity.** The remaining
-architecture item — module-path spoofing review / classification — plus the
-selected-game runtime validation phase are deferred as described in
+**This does not yet provide full REFramework anti-tamper parity.** Module-path
+spoofing is classified `INCONCLUSIVE` (deferred), and the six-game runtime
+validation phase is still outstanding — see
+[`doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md`](doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md)
+and
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build
