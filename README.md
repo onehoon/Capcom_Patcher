@@ -66,9 +66,24 @@ never used as an automatic opt-in for future Capcom games.
   segment-glob support. PE-header integrity redirection, heartbeat,
   stack-destroyer and module-path layers are **not** included.
 
+- **PR4** — the standalone renderer heartbeat bypass from REFramework
+  `IntegrityCheckBypass::re9_heartbeat_bypass()`: discover the six renderer
+  heartbeat/frame values with 3× structural confirmation (normal **and** early
+  `heartbeat[0]==0` modes) and continuously synchronize them to the engine's real
+  `via.render.Renderer.get_RenderFrame()` value. Profile-gated to the five
+  modern-TDB games (DD2/RE9/PRAGMATA/Onimusha/MHS3 — never MHW). A minimal
+  standalone RE Engine bridge (`src/reengine/`) resolves the VM context, the
+  validated TDB **82/83** layout (explicit per-game, never `>= 82` auto-support),
+  `via.render.Renderer` and the native `get_RenderFrame` function; no REFramework
+  runtime dependency and **no DXGI/Present/swapchain hook**. A single
+  process-lifetime worker started from `InitializeASI()` runs the state machine
+  with bounded backoff; nothing is written before a unique cluster is confirmed,
+  and confirmed clusters are sentinel/renderer-revalidated every sync. PE-header
+  redirection, stack-destroyer and module-path layers are **not** included.
+
 **This does not yet provide full REFramework anti-tamper parity.** The remaining
-layers — PE-header integrity redirection, renderer heartbeat, stack-destroyer
-scan, module-path spoofing — are deferred to later PRs as described in
+layers — PE-header integrity redirection, stack-destroyer scan, module-path
+spoofing — are deferred to later PRs as described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build
