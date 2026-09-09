@@ -320,13 +320,22 @@ bool InstallVirtualProtectGuard()
     }
 
     auto hook = std::make_unique<hooking::MinHookInlineHook>(target, reinterpret_cast<void*>(&VirtualProtectHook));
-    if (!hook->IsValid() || !hook->Enable())
+    if (!hook->IsValid())
     {
-        Log("[CapcomPatcher][NtProtect] VirtualProtect hook failed");
+        Log("[CapcomPatcher][NtProtect] VirtualProtect hook creation failed");
         return false;
     }
 
+    // Publish before enabling: once the patch is live the detour can run on
+    // another thread and may need Original() through the global.
     g_virtualProtectHook = std::move(hook);
+    if (!g_virtualProtectHook->Enable())
+    {
+        Log("[CapcomPatcher][NtProtect] VirtualProtect hook enable failed");
+        g_virtualProtectHook.reset();
+        return false;
+    }
+
     Log("[CapcomPatcher][NtProtect] VirtualProtect hook installed");
     return true;
 }
@@ -401,13 +410,22 @@ bool InstallVectoredExceptionHandlerGuard()
 
     auto hook =
         std::make_unique<hooking::MinHookInlineHook>(target, reinterpret_cast<void*>(&AddVectoredExceptionHandlerHook));
-    if (!hook->IsValid() || !hook->Enable())
+    if (!hook->IsValid())
     {
-        Log("[CapcomPatcher][VEH] hook failed");
+        Log("[CapcomPatcher][VEH] hook creation failed");
         return false;
     }
 
+    // Publish before enabling so AddVectoredExceptionHandlerHook() can always
+    // reach the original trampoline via g_vehHook once the patch is live.
     g_vehHook = std::move(hook);
+    if (!g_vehHook->Enable())
+    {
+        Log("[CapcomPatcher][VEH] hook enable failed");
+        g_vehHook.reset();
+        return false;
+    }
+
     Log("[CapcomPatcher][VEH] hook installed");
     return true;
 }
@@ -440,13 +458,20 @@ bool InstallRtlExitUserProcessGuard()
 
     auto hook =
         std::make_unique<hooking::MinHookInlineHook>(target, reinterpret_cast<void*>(&RtlExitUserProcessHook));
-    if (!hook->IsValid() || !hook->Enable())
+    if (!hook->IsValid())
     {
-        Log("[CapcomPatcher][Exit] RtlExitUserProcess hook failed");
+        Log("[CapcomPatcher][Exit] RtlExitUserProcess hook creation failed");
         return false;
     }
 
     g_exitHook = std::move(hook);
+    if (!g_exitHook->Enable())
+    {
+        Log("[CapcomPatcher][Exit] RtlExitUserProcess hook enable failed");
+        g_exitHook.reset();
+        return false;
+    }
+
     Log("[CapcomPatcher][Exit] RtlExitUserProcess hook installed");
     return true;
 }
