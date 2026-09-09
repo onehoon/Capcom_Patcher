@@ -110,15 +110,18 @@ never used as an automatic opt-in for future Capcom games.
   worker / hook / trampoline / allocation.
 - **PR7** — module-path spoofing review / classification (documentation only, no
   production code). REFramework's `utility::spoof_module_paths_in_exe_dir()`
-  (`cursey/kananlib@8c27b65`) rewrites `LDR_DATA_TABLE_ENTRY.FullDllName` for
-  DLLs whose loader directory is the game executable directory, backed by a
-  REFramework-owned copy into a game-local `_storage_`. The current OptiScaler
-  fork (`onehoon/OptiScaler@3809b221`) loads `CapcomPatcher.asi` verbatim from
-  its configured plugin subdirectory with all four path identities (disk /
-  loader-input / `GetModuleFileNameW` / PEB) consistent and no relocation.
-  Conclusion: **`INCONCLUSIVE`**, leaning `NOT_APPLICABLE` for the default
-  topology; module-path spoofing stays deferred pending the runtime evidence
-  named in
+  (`cursey/kananlib@8c27b65`) walks the PEB loader list and rewrites
+  `LDR_DATA_TABLE_ENTRY.FullDllName` for **any** loaded DLL whose loader
+  directory is the game executable directory (the `_storage_` copy is its
+  output, not a precondition). In the current OptiScaler fork
+  (`onehoon/OptiScaler@3809b221`) the **OptiScaler proxy DLL is a game-root DLL**
+  and therefore in that eligible set, but its disk / `GetModuleFileNameW` / PEB
+  identities are consistent and nothing rewrites them; `CapcomPatcher.asi` is
+  normally loaded from a `plugins\` subdirectory, which the upstream rule
+  explicitly skips. Whether any of the six games penalizes a game-root non-game
+  DLL identity is unproven and no runtime observation was possible. Conclusion:
+  **`INCONCLUSIVE`** — module-path spoofing stays deferred pending the
+  read-only runtime evidence named in
   [`doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md`](doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md).
 
 **This does not yet provide full REFramework anti-tamper parity.** Module-path

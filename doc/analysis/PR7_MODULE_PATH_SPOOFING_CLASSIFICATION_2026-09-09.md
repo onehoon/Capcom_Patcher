@@ -8,30 +8,40 @@
 
 ## 1. Executive conclusion
 
-**`INCONCLUSIVE`**, with a documented strong lean toward `NOT_APPLICABLE` for the
-default OptiScaler + Capcom Patcher install topology.
+**`INCONCLUSIVE`.**
 
-Static source analysis shows that REFramework's `_storage_` + module-path spoof
-responsibility is scoped to **DLLs whose loader path is the game executable
-directory itself**, is backed by REF-owned file relocation into `_storage_`, and
-that the current OptiScaler fork loads `CapcomPatcher.asi` **verbatim from its
-configured plugin subdirectory** with all four path identities consistent and no
-relocation. In the default topology the upstream trigger condition does not arise
-for Capcom Patcher's own module.
+The upstream `spoof_module_paths_in_exe_dir()` eligibility test (§4.1) is:
+*any loaded module, except the game `.exe`, whose loader-visible directory
+(`FullDllName.parent_path()`) equals the game executable directory.* The
+`_storage_` file copy and the `FullDllName` rewrite are that routine's **output
+mechanism**, not a precondition. So the default OptiScaler + Capcom Patcher
+topology must be split by module:
 
-It is not classified `NOT_APPLICABLE` because:
+| Module | Loader directory (default install) | In the upstream spoof-eligible set? | Selected-game penalty for that identity |
+|---|---|---:|---:|
+| **OptiScaler proxy DLL** (`dxgi.dll` / `winmm.dll` / `version.dll` / …) | **game executable directory** (game-root proxy install) | **YES** | **UNKNOWN** — no game-side check located, not run |
+| `CapcomPatcher.asi` | `<gamedir>\plugins\` (a subdirectory) | **NO** in the default layout (upstream explicitly *skips* subdirectory modules); **YES** only under a non-default `PluginPath = <gamedir>` | **UNKNOWN** |
 
-1. a **non-default but supported** OptiScaler configuration (`PluginPath` pointed
-   at the game executable directory) recreates exactly the game-root DLL state
-   REFramework spoofs — so the offending state is *not structurally impossible*,
-   only *not the default*; and
-2. there is **no game-side evidence**: the exact RE Engine anti-tamper check that
-   REFramework's `_storage_` + spoof mechanism compensates for has not been
-   located in any of the six selected titles, and no runtime PEB/loader identity
-   observation was possible (no game runtime available to this work).
+So a game-root DLL that would enter the upstream spoof set **does exist in the
+default topology** — it is the OptiScaler proxy module, not `CapcomPatcher.asi`.
+Whether any of the six selected games actually penalizes that identity is
+unverified (no anti-tamper loader-path check located, no runtime observation —
+no game runtime was available to this work).
 
-`REQUIRED` is not met: it needs positive evidence that a real path-identity
-mismatch causes a delayed penalty removed by the spoof, and none exists.
+`NOT_APPLICABLE` is therefore **not** justified: the game-root-DLL condition is
+present (OptiScaler proxy), not structurally impossible, and the game-side half
+is unproven. A conclusion of "not applicable" would rest on absence-of-evidence,
+which §8.1 / reject invariant 5 forbid.
+
+`REQUIRED` is **not** met either: it needs positive evidence that a real
+path-identity condition causes a delayed penalty removed by the spoof, and none
+exists — no A/B, no located check, no high-confidence REFramework evidence tied
+to this topology.
+
+For `CapcomPatcher.asi`'s **own** module in the **default** `plugins\` layout,
+the mechanical precondition is absent (it is a subdirectory module upstream
+would skip, with a consistent path class) — but that is a statement about one
+module in one layout, not a topology-wide `NOT_APPLICABLE`.
 
 **Follow-up action:** retain module-path spoofing as *deferred / unresolved*.
 Section 13 names the exact evidence-collection tasks that would resolve it, to be
@@ -94,11 +104,18 @@ Confirmed from the function body (not inferred from the name):
      module in any subdirectory (e.g. `plugins\`) is explicitly logged
      `"Skipping ..."` and left untouched;
    - build `new_path = <gamedir>\_storage_\<stem><ext>`;
-   - **copy the DLL file** from `<gamedir>\x.dll` to
-     `<gamedir>\_storage_\x.dll` (`std::filesystem::copy_file`, overwrite); on
-     failure, fall back to a system-directory path string;
-   - allocate a fresh `wchar_t[]` for `new_path` and **overwrite the in-memory
-     loader entry**:
+   - attempt `std::filesystem::create_directory(<gamedir>\_storage_)` then
+     `std::filesystem::copy_file(<gamedir>\x.dll, new_path, overwrite_existing, ec)`.
+     **Copy-failure handling — exact pinned behavior:**
+     - an ordinary `copy_file` failure surfaces through the `std::error_code ec`
+       (logged `"Failed to copy DLL file: {}"`), then `ec.clear()`. **`new_path`
+       is not changed** — the routine proceeds with the `_storage_` path even
+       though the `_storage_` file may not exist;
+     - the system-directory fallback (`new_path = <system dir>\<stem><ext>`) runs
+       **only** from the enclosing `catch (...)` handler, i.e. when a filesystem
+       operation *throws* (e.g. `create_directory`), not on an `ec` return;
+   - allocate a fresh `wchar_t[]` for the current `new_path` and **overwrite the
+     in-memory loader entry**:
      - `ldr_entry->FullDllName.Buffer   = <new heap wchar array>`
      - `ldr_entry->FullDllName.Length   = new_path.size() * 2`
      - `ldr_entry->FullDllName.MaximumLength = size * 2`
@@ -206,18 +223,28 @@ PluginPath:
 For the common install where OptiScaler is a **game-root proxy DLL**
 (`dxgi.dll` / `winmm.dll` / `version.dll` / `dbghelp.dll` / … next to the game
 `.exe`), `MainDllPath` resolves to the **game executable directory** and
-`PluginPath` resolves to **`<gamedir>\plugins`**. Therefore the default physical
-location of `CapcomPatcher.asi` is:
+`PluginPath` resolves to **`<gamedir>\plugins`**. So the default physical
+location of `CapcomPatcher.asi` is `<gamedir>\plugins\CapcomPatcher.asi` — a
+**subdirectory** of the game root, not the game root.
 
-```
-<game executable directory>\plugins\CapcomPatcher.asi
-```
+**`PluginPath` is not always absolutized.** `MainDllPath` is passed through
+`std::filesystem::absolute(...)`, but a **configured, existing, is-directory
+`PluginPath` is left exactly as supplied** — the fallback that joins it onto
+`MainDllPath` only runs when it is unset / missing / not a directory. A valid
+config such as `Path=plugins` therefore stays **relative**.
+`std::filesystem::directory_iterator("plugins")` then yields **relative**
+`entry.path()` values, and `LoadLibraryExW_Ldr` / `LdrLoadDll` receive a relative
+`UNICODE_STRING`. The Windows loader resolves it against the process default
+search order and records an **absolute** `FullDllName`. So in that config the
+loader-input string (B) and the loader-metadata / `GetModuleFileNameW` string
+(D / C) name the **same file and directory class** but are **not the same
+string**, and the exact B/C/D representations are only knowable from a runtime
+snapshot.
 
-— a **subdirectory** of the game root, not the game root.
-
-`PluginPath` is a user-configurable value. A user *can* set it to the game
-executable directory itself, in which case `CapcomPatcher.asi` would be loaded
-from `<gamedir>\CapcomPatcher.asi` — directly in the game root.
+`PluginPath` is also user-configurable: a user *can* set it to the game
+executable directory, in which case `CapcomPatcher.asi` loads from
+`<gamedir>\CapcomPatcher.asi` — directly in the game root, i.e. inside the
+upstream spoof-eligible set.
 
 ---
 
@@ -247,10 +274,13 @@ From `src/REFramework.cpp` (`REFramework::REFramework()` / `initialize()` path):
 
 **Why the pieces exist together:**
 
-- The **file copy into `_storage_`** exists so that after the loader entry's
-  `FullDllName` is rewritten to `<gamedir>\_storage_\x.dll`, that path names a
-  **real file on disk** — any anti-tamper (or diagnostic) code that re-opens the
-  reported module path with `CreateFile` still succeeds.
+- The **file copy into `_storage_`** appears intended to give the rewritten
+  `<gamedir>\_storage_\x.dll` identity a real file on disk, so code that re-opens
+  the reported module path still succeeds. This is **inference** — no upstream
+  comment states it — and the pinned implementation does **not** guarantee it: an
+  `error_code` `copy_file` failure is logged and the routine still rewrites
+  `FullDllName` to the `_storage_` path even if no `_storage_` file exists
+  (§4.1). The reopen/consumer rationale therefore remains unproven.
 - The **`FullDllName` rewrite** moves the loader-visible identity of REF's own
   modules (and any DLL sitting in the game root) **out of the game executable
   directory**, so a check of the form "enumerate loaded modules; flag any whose
@@ -283,7 +313,7 @@ function it defeats.
 | `LDR_DATA_TABLE_ENTRY` | `BaseDllName` | no | untouched |
 | `LDR_DATA_TABLE_ENTRY` | `DllBase`, links, flags, `EntryPoint`, `SizeOfImage` | no | untouched |
 | `PEB` / `PEB_LDR_DATA` | any field | no | not written |
-| Disk | new `<gamedir>\_storage_\*.dll` files + `_storage_\D3D12\` | **yes** | `copy_file` overwrite; directory created |
+| Disk | new `<gamedir>\_storage_\*.dll` files + `_storage_\D3D12\` | **attempted** | `create_directory` + `copy_file` overwrite; an `error_code` copy failure is only logged (no file created, `FullDllName` still rewritten to the `_storage_` path) |
 | Disk | original DLLs | no | not renamed/moved/deleted |
 
 `GetModuleFileNameW` reads from the same `FullDllName` in modern Windows, so a
@@ -306,13 +336,13 @@ game .exe starts
     LoadAsiPlugins():
       directory_iterator(<gamedir>\plugins)
       for CapcomPatcher.asi:
-        NtdllProxy::LoadLibraryExW_Ldr("<gamedir>\plugins\CapcomPatcher.asi", NULL, 0)
-          -> RtlInitUnicodeString(uName, "<gamedir>\plugins\CapcomPatcher.asi")   [verbatim]
-          -> LdrLoadDll(nullptr, ..., &uName, &hMod)                              [recursive load]
+        NtdllProxy::LoadLibraryExW_Ldr(entry.path(), NULL, 0)   // entry.path() from directory_iterator(PluginPath)
+          -> RtlInitUnicodeString(uName, entry.path())          [verbatim - absolute or relative per config]
+          -> LdrLoadDll(nullptr, ..., &uName, &hMod)             [recursive load]
              -> Capcom Patcher DllMain(DLL_PROCESS_ATTACH)
                   DisableThreadLibraryCalls
                   runtime_guards::EarlyInitialize   (pristine syscall / VEH / exit guard)
-             loader records FullDllName = "<gamedir>\plugins\CapcomPatcher.asi"
+             loader records FullDllName = <absolute resolution of that path>   (same file, subdir class)
         init        = GetProcAddress(hMod, "InitializeASI")
         patchResult = GetProcAddress(hMod, "PatchResult")
         init()        -> DD2/RE9/PE-header/stack-destroyer/heartbeat/DbgUi startup
@@ -321,45 +351,79 @@ game .exe starts
 
 Capcom Patcher performs **no** module copy, no directory creation, no
 `FullDllName` write, no `LdrRegisterDllNotification`, no loader hook — for its
-own module or any other. It is a passive ASI loaded from its real configured
-path.
+own module or any other. It is a passive ASI loaded from its configured path.
+
+The **OptiScaler proxy DLL** that started this whole chain is itself a
+`<gamedir>\<name>.dll` module — i.e. a module the upstream
+`spoof_module_paths_in_exe_dir()` walk **would process** (§4.1: eligible = any
+loaded non-exe module whose `FullDllName` directory is the game exe directory).
+It is not `CapcomPatcher.asi`, and Capcom Patcher does not own it, but it is the
+concrete game-root DLL present in the default topology.
 
 ---
 
-## 9. Four path identities for `CapcomPatcher.asi`
+## 9. Path identities — per module
 
-| Identity | Default topology value | Source of truth |
+The work order requires the four identities (A disk / B loader-input /
+C `GetModuleFileNameW` / D PEB `FullDllName`) to be kept separate. They must also
+be kept separate **per module**.
+
+### 9.1 `CapcomPatcher.asi`
+
+| Identity | Default `plugins\` layout | Notes |
 |---|---|---|
-| **A. Physical file on disk** | `<gamedir>\plugins\CapcomPatcher.asi` | OptiScaler `PluginPath` = `<MainDllPath>\plugins`; nothing copies/moves it |
-| **B. Path passed to the loader** | `<gamedir>\plugins\CapcomPatcher.asi` | `directory_iterator` absolute `entry.path()` → `RtlInitUnicodeString` verbatim → `LdrLoadDll` |
-| **C. `GetModuleFileNameW`** | `<gamedir>\plugins\CapcomPatcher.asi` | loader records B; no `GetModuleFileName` hook in scope |
-| **D. PEB `LDR_DATA_TABLE_ENTRY.FullDllName`** | `<gamedir>\plugins\CapcomPatcher.asi` (`BaseDllName` = `CapcomPatcher.asi`) | loader fills from B; nothing rewrites it |
+| A — physical file on disk | `<gamedir>\plugins\CapcomPatcher.asi` | nothing copies/moves it |
+| B — path passed to the loader | `<configured PluginPath>\CapcomPatcher.asi` from `directory_iterator` `entry.path()`, passed **verbatim** to `LdrLoadDll` — **absolute if `PluginPath` is absolute, relative if `PluginPath` is a relative config value** (§5.4) | no rewrite in `LoadLibraryExW_Ldr` / `hkLdrLoadDll` |
+| C — `GetModuleFileNameW` | absolute `<...>\plugins\CapcomPatcher.asi` | loader-recorded; no `GetModuleFileName` hook in scope |
+| D — PEB `FullDllName` (`BaseDllName` = `CapcomPatcher.asi`) | absolute `<...>\plugins\CapcomPatcher.asi` | loader fills it; nothing rewrites it |
 
-**All four are the same string.** They are self-consistent, and the directory is
-a **plugin subdirectory**, not the game executable directory.
+**What is statically established:** A, C and D all name the **same file** in the
+**same directory class** (`plugin_dir`, a subdirectory of the game root). B names
+the same file but its **string form may be relative** and is not provably equal
+to C/D as a string. **Exact B/C/D string values require the read-only runtime
+snapshot** (§13). Nothing relocates the file; there is no `FullDllName` rewrite.
 
-Non-default `PluginPath = <gamedir>`: A/B/C/D all become
-`<gamedir>\CapcomPatcher.asi` — still self-consistent, but now **directly in the
-game executable directory**, which is the REFramework spoof trigger set.
+Under a non-default `PluginPath = <gamedir>`, A/C/D become
+`<gamedir>\CapcomPatcher.asi` — directory class `game_root`, i.e. inside the
+upstream spoof-eligible set.
+
+### 9.2 OptiScaler proxy DLL (the common `dxgi.dll` / `winmm.dll` / … install)
+
+| Identity | Value | Notes |
+|---|---|---|
+| A — physical file on disk | `<gamedir>\<proxyname>.dll` | placed next to the game `.exe` by the user |
+| B — path passed to the loader | n/a — loaded by the OS loader itself as a game import / known-DLL substitute, not by OptiScaler | |
+| C — `GetModuleFileNameW` | `<gamedir>\<proxyname>.dll` | |
+| D — PEB `FullDllName` (`BaseDllName` = `<proxyname>.dll`) | `<gamedir>\<proxyname>.dll` | loader-recorded |
+
+**Directory class: `game_root`.** A/C/D are consistent, but this module **is in
+the upstream spoof-eligible set** — `FullDllName.parent_path() == <game exe
+dir>`. Whether any selected game penalizes a game-root non-game DLL with a
+graphics-DLL name (`dxgi.dll` is itself an expected name) is **UNKNOWN**.
 
 ---
 
 ## 10. Responsibility-equivalence table
 
-| Responsibility / condition | REFramework | OptiScaler + Capcom Patcher | Equivalent? | Evidence |
+| Condition | REFramework rule | Current OptiScaler + Capcom Patcher topology | Equivalent? | Evidence |
 |---|---|---|---:|---|
-| A game-root proxy DLL is the injection vector | yes — REF is commonly `dxgi.dll`/`dinput8.dll` in the game root | yes — OptiScaler is commonly a game-root proxy DLL | **yes** (for OptiScaler's module, not Capcom Patcher's) | OptiScaler proxy headers; `dllmain.cpp` proxy handling |
-| `_storage_` file copy / relocation exists | yes — REF copies `<gamedir>\*.dll` + `D3D12Core.dll` into `_storage_` | **no** — no `_storage_` or equivalent in the OptiScaler fork or Capcom Patcher | **no** | `git`-grep of both trees; `LoadLibraryExW_Ldr` / `hkLdrLoadDll` bodies |
-| Loader path of *our* module differs from its physical/visible path | yes — REF rewrites `FullDllName` to `_storage_` | **no** — `CapcomPatcher.asi` loads verbatim; A=B=C=D | **no** | section 9 |
-| `LDR_DATA_TABLE_ENTRY.FullDllName` is mutated | yes | **no** — Capcom Patcher never writes loader metadata | **no** | Capcom Patcher `src/` has no PEB/LDR write; `PatchResult()` == false |
-| Spoof re-applied on later game-root DLL load | yes — `LdrRegisterDllNotification` + fallback | **no** — Capcom Patcher registers no notification | **no** | section 6 vs section 8 |
-| Our module's loader directory is the game executable directory | yes (REF's own module) | **no** in the default topology (`plugins\` subdir); **yes** only under a non-default `PluginPath = <gamedir>` | **no (default) / yes (non-default config)** | section 5.4, 9; REF explicitly *skips* subdirectory modules (section 4.1) |
-| A selected game's anti-tamper observes / penalizes a loader-path identity | REF gates `_storage_`+spoof on `is_dd2 \|\| is_mhrise \|\| tdb_ver >= 74`, implying *some* check exists in that family | **unproven** for the six selected titles at their current builds | **unknown** | no game-side check located; no runtime observation (no game available) |
+| Game-root injected/proxy DLL exists | eligible for the spoof walk | **the OptiScaler proxy DLL is a game-root DLL** in the common install | **yes** — a spoof-eligible game-root module is present | OptiScaler `proxies/*`; §5.4, §9.2 |
+| That module's loader path differs from its disk/visible path | rewritten to `_storage_` | **no** — OptiScaler proxy A/C/D are consistent; nothing rewrites its `FullDllName` | **no** | §9.2 |
+| Plugin-subdirectory ASI (`CapcomPatcher.asi`, default layout) | **skipped** (not in game exe dir) | `CapcomPatcher.asi` is normally in `plugins\` | **yes: also skipped** by the upstream rule | §4.1, §9.1 |
+| `_storage_` file copy / relocation | REF-owned, `copy_file` into `<gamedir>\_storage_` | **absent** in both the OptiScaler fork and Capcom Patcher | **no** | tree grep; `LoadLibraryExW_Ldr` / `hkLdrLoadDll` bodies |
+| `LDR_DATA_TABLE_ENTRY.FullDllName` mutation | yes | **no** — no component writes loader metadata | **no** | Capcom Patcher `src/` has no PEB/LDR write; `PatchResult()` == false |
+| Re-apply on later game-root DLL load | `LdrRegisterDllNotification` + fallback | **no** notification/callback in Capcom Patcher | **no** | §6 vs §8 |
+| Exact loader-input string proven equal to visible/PEB string for our ASI | not applicable (REF rewrites it) | **not statically proven** — `PluginPath` may be relative → B relative, C/D absolute (same file, different string) | **unknown (string) / yes (file + class)** | §5.4, §9.1 |
+| A selected game's anti-tamper penalizes a game-root or plugin-subdir loader identity | gate `is_dd2 \|\| is_mhrise \|\| tdb_ver >= 74` implies *some* check in the family | **unproven** for the six selected titles; the exact check is not located | **unknown** | no game-side check located; no runtime observation |
 
-The final classification derives from the last two rows: the mechanical
-preconditions REFramework compensates for are **absent** in the default topology
-(rows 2–6), but the game-side check that would make any of it *matter* is
-**unverified** (row 7), and a non-default config reopens row 6.
+**How the classification derives from this table:** a spoof-eligible game-root
+DLL **is present** in the default topology (row 1 — the OptiScaler proxy), so the
+"mechanical precondition is absent" framing is wrong topology-wide. What is
+absent for that module is the *mismatch the spoof fixes* (rows 2, 4, 5, 6). What
+is unknown is whether any selected game *penalizes* the game-root identity at all
+(row 8), and — for the ASI specifically — the exact loader-input string (row 7).
+`CapcomPatcher.asi` in the default `plugins\` layout is separately skipped by the
+upstream rule (row 3).
 
 ---
 
@@ -384,24 +448,28 @@ No unrelated XeFG/FG/swapchain failure is presented as path-spoof evidence.
 
 **`INCONCLUSIVE`.**
 
-Against `NOT_APPLICABLE` (§8.1 threshold — "structurally impossible in the
-current architecture"):
+Against `NOT_APPLICABLE` (§8.1 threshold — the offending state is "structurally
+impossible in the current architecture"):
 
-- The default-topology argument is strong: `CapcomPatcher.asi` loads verbatim
-  from a plugin subdirectory, all four identities agree, nothing relocates it,
-  and REFramework's own spoof routine *explicitly skips* modules that are not in
-  the game executable directory. For the **default** install, the upstream
-  trigger does not arise.
-- But it is **not structurally impossible**: OptiScaler's `PluginPath` is
-  user-configurable and may point at the game executable directory, which
-  recreates the exact game-root-DLL state REFramework spoofs. `NOT_APPLICABLE`
-  requires the state to be unreachable, not merely non-default.
-- And the game-side half is unproven: REFramework gates `_storage_` + spoof on
-  the modern RE Engine family, so a relevant loader-path or module-directory
-  check plausibly exists — but it has **not been located** in any of the six
-  selected titles, and **no runtime PEB/`GetModuleFileNameW`/disk comparison**
-  was possible. A conclusion of `NOT_APPLICABLE` here would rest on "no evidence
-  of a problem", which §8.1 and reject invariant 5 forbid.
+- A **game-root DLL that the upstream spoof walk would process does exist** in
+  the default topology: the OptiScaler proxy module (`<gamedir>\dxgi.dll` etc.,
+  §9.2). The precondition "a spoof-eligible game-root module is present" is
+  therefore **met**, not absent — the earlier framing that called it absent
+  topology-wide was wrong.
+- What is absent *for that module* is the **mismatch the spoof fixes**: the
+  OptiScaler proxy's disk / visible / PEB identities are consistent and nothing
+  rewrites its `FullDllName` (§9.2, §10 rows 2/4/5/6). `CapcomPatcher.asi` in the
+  default `plugins\` layout is separately **skipped** by the upstream rule
+  (subdirectory module, §4.1). And a non-default `PluginPath = <gamedir>` would
+  put `CapcomPatcher.asi` itself into the game-root eligible set.
+- The **game-side half is unproven**: REFramework gates `_storage_` + spoof on
+  the modern RE Engine family, so a loader-path / module-directory check
+  plausibly exists — but it has **not been located** in any of the six selected
+  titles, and **no runtime PEB / `GetModuleFileNameW` / disk comparison** was
+  possible. A `NOT_APPLICABLE` conclusion here would rest on "no evidence of a
+  problem", which §8.1 and reject invariant 5 forbid — and it cannot be
+  supported while the OptiScaler proxy sits in the eligible set with no
+  game-side check ruled out.
 
 Against `REQUIRED` (§8.2 threshold — positive evidence):
 
@@ -410,9 +478,11 @@ Against `REQUIRED` (§8.2 threshold — positive evidence):
   "REFramework calls it" and "the games use anti-tamper" are explicitly
   insufficient.
 
-`INCONCLUSIVE` is the honest result: the mechanical preconditions are absent in
-the default topology, but the evidence needed to *close* the item (game-side
-check + runtime identity observation + non-default-config behavior) is missing.
+`INCONCLUSIVE` is the honest result: a spoof-eligible game-root module is
+present (OptiScaler proxy), it currently has consistent identities, `CapcomPatcher.asi`
+is normally outside the eligible set, and the evidence needed to *close* the item
+(game-side check + runtime identity observation + non-default-config behavior) is
+missing.
 
 No production spoof, `_storage_`, PEB/LDR write, loader hook, notification
 callback, worker, or byte patch was added to reach this result.
@@ -429,14 +499,17 @@ classification and belong in the six-game runtime validation phase:
 
 1. **Loader-identity snapshot (read-only).** From `InitializeASI()` (post-load,
    off `DllMain`), a one-shot SEH-guarded walk of the PEB `InMemoryOrderModuleList`
-   that records, for `CapcomPatcher.asi`, the OptiScaler proxy module, and the
-   game `.exe` only: `BaseDllName`, a **path class**
+   recording, for `CapcomPatcher.asi`, **the OptiScaler proxy/main module**, and
+   the game `.exe` only: `BaseDllName`, and a **path class**
    (`game_root | plugin_dir | game_subdir | system | other`) for each of
-   (disk / `GetModuleFileNameW` / PEB `FullDllName`), and whether they agree.
-   Output one normalized line per module — no raw user paths in normal output.
-   No writes, no retained pointers, no callback, no polling. This is the
-   `INCONCLUSIVE → resolved` instrument; add it with focused unit tests for the
-   pure path-classification / normalization / case-insensitive comparison logic.
+   (disk / `GetModuleFileNameW` / PEB `FullDllName`), plus whether they agree.
+   For the OptiScaler proxy this confirms whether its game-root identity is truly
+   consistent in practice; for the ASI it settles the relative-vs-absolute B/C/D
+   question left open in §9.1. Output one normalized line per module — no raw
+   user paths in normal output. No writes, no retained pointers, no callback, no
+   polling. This is the `INCONCLUSIVE → resolved` instrument; add it with focused
+   unit tests for the pure path-classification / normalization / case-insensitive
+   comparison logic.
 2. **Non-default `PluginPath` A/B.** With `PluginPath` set to the game
    executable directory (so `CapcomPatcher.asi` is game-root), launch each
    available selected game with and without `CapcomPatcher.asi` and record
@@ -445,8 +518,9 @@ classification and belong in the six-game runtime validation phase:
 3. **Game-side check location.** In at least one selected title (DD2 or RE9 —
    the two REFramework special-cases by name), locate the anti-tamper code path
    that enumerates loaded modules / inspects a module directory, and determine
-   whether a game-root non-game DLL (or a `plugins\` subdirectory DLL) is a
-   penalty trigger.
+   whether **a game-root non-game DLL (e.g. the OptiScaler proxy)** or a
+   `plugins\` subdirectory DLL is a penalty trigger. This is the pivotal
+   unknown: the OptiScaler proxy already sits in the game-root eligible set.
 4. **REFramework A/B on a shared build.** On a game/build where REFramework runs,
    capture a loaded-module `FullDllName` list before and after
    `spoof_module_paths_in_exe_dir()` and confirm which modules it actually
@@ -459,9 +533,10 @@ exact modules, exact `FullDllName` old/new rule, whether the `_storage_` file
 backing is required, initial timing, whether `LdrRegisterDllNotification` is
 needed, lifetime/restore policy, loader-lock safety, and the fail-closed rule.
 
-If (1) confirms consistent identities and (2)/(3) find no penalty for the
-default `plugins\` layout, the classification moves to `NOT_APPLICABLE` and
-module-path spoofing is closed as intentionally omitted.
+If (1) confirms consistent identities for the OptiScaler proxy and the ASI, and
+(2)/(3) find no selected-game penalty for a game-root non-game DLL or the
+`plugins\` layout, the classification moves to `NOT_APPLICABLE` and module-path
+spoofing is closed as intentionally omitted.
 
 ---
 
