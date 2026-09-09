@@ -139,21 +139,19 @@ uintptr_t GetContextRegister(const SafetyHookContext& ctx, int ndrReg) noexcept
     }
 }
 
-// Repair descriptor `entry + 8` only if it still holds the corrupt value.
+// Repair descriptor `entry + 8`, swapping ONLY the exact corrupt value for
+// `value` (atomic CAS -- no compare/write TOCTOU). A newer legitimate pointer
+// written by another scheduler thread is left untouched. SEH-guarded for a
+// stale / unmapped entry; ctx.rax restoration still protects the current call.
 void RepairJobEntry(uintptr_t entry, uintptr_t corrupt, uintptr_t value) noexcept
 {
-    if (entry == 0 || value == 0)
+    if (entry == 0 || value == 0 || entry > UINTPTR_MAX - 8)
     {
         return;
     }
-    uintptr_t current = 0;
-    if (!memory::TryReadBytes(entry + 8, &current, sizeof(current)) || current != corrupt)
-    {
-        return; // changed since we observed it -- do not overwrite
-    }
     __try
     {
-        *reinterpret_cast<uintptr_t*>(entry + 8) = value;
+        (void)detail::CompareExchangeSlot(entry + 8, corrupt, value);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -171,38 +169,24 @@ void ValidateJobFunc(SafetyHookContext& ctx)
         return;
     }
 
-    // Fail-soft readability probe (no kernel32 call).
-    __try
+    // One SEH-guarded 2-byte read (memory::TryReadBytes). An unreadable pending
+    // call target fails closed to noop_job -- it is never left live for the
+    // `call rax` right after this callsite.
+    uint16_t head = 0;
+    const bool probeOk = memory::TryReadBytes(func, &head, sizeof(head));
+    if (!probeOk)
     {
-        volatile uint64_t probe = *reinterpret_cast<volatile uint64_t*>(func);
-        (void)probe;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return; // leave a value we cannot even read untouched
+        g_counters.faults.fetch_add(1);
     }
 
     const uintptr_t entry = GetContextRegister(ctx, Reg);
-    bool isUd2 = false;
-    bool decoded = true;
-    __try
+    const bool isUd2 = probeOk && head == 0x0B0F; // 0F 0B
+    if (isUd2)
     {
-        isUd2 = (*reinterpret_cast<const uint16_t*>(func) == 0x0B0F); // 0F 0B
+        g_counters.ud2.fetch_add(1);
     }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        decoded = false;
-    }
-
-    if (!decoded)
-    {
-        ctx.rax = reinterpret_cast<uintptr_t>(&noop_job);
-        g_counters.faults.fetch_add(1);
-        return;
-    }
-
     const uintptr_t cached = entry != 0 ? GetRememberedJobFunction(entry) : 0;
-    const auto decision = detail::DecideJob(func, /*probeOk*/ true, isUd2, cached);
+    const auto decision = detail::DecideJob(func, probeOk, isUd2, cached);
 
     switch (decision.action)
     {
@@ -215,7 +199,6 @@ void ValidateJobFunc(SafetyHookContext& ctx)
         }
         break;
     case detail::JobAction::RestoreCached:
-        g_counters.ud2.fetch_add(1);
         ctx.rax = decision.restoreValue;
         RepairJobEntry(entry, func, decision.restoreValue);
         g_counters.restored.fetch_add(1);
@@ -225,12 +208,11 @@ void ValidateJobFunc(SafetyHookContext& ctx)
         }
         break;
     case detail::JobAction::SubstituteNoop:
-        g_counters.ud2.fetch_add(1);
         ctx.rax = reinterpret_cast<uintptr_t>(&noop_job);
         g_counters.noop.fetch_add(1);
         if (!g_noopAnnounced.exchange(true))
         {
-            Log("[CapcomPatcher][RE9Family][JobGuard] substituted noop_job for corrupted UD2 job pointer");
+            Log("[CapcomPatcher][RE9Family][JobGuard] substituted noop_job for an untrusted job pointer");
         }
         break;
     }

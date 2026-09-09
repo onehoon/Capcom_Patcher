@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <intrin.h>
 
 #include "../GameProfile.h"
 
@@ -30,10 +31,10 @@ namespace detail
 // probed. Kept here so it is directly unit-testable.
 enum class JobAction
 {
-    LeaveUnchanged,   // func == 0, or validation could not run
+    LeaveUnchanged,   // func == 0 (nothing to validate)
     RememberOriginal, // func is a normal readable pointer -> cache it
     RestoreCached,    // func is UD2 and a different cached original exists
-    SubstituteNoop,   // func is UD2 with no usable cached original / unreadable
+    SubstituteNoop,   // func is UD2 without a usable cache, OR func is unreadable
 };
 
 struct JobDecision
@@ -47,11 +48,19 @@ struct JobDecision
 // probeOk   : a readable probe of *funcPtr succeeded
 // isUd2     : *(uint16_t*)funcPtr == 0x0B0F  (0F 0B) -- only meaningful if probeOk
 // cachedOrig: GetRememberedJobFunction(entry), 0 if none
+//
+// Fail-closed: an unreadable pending call target (probeOk == false) is never left
+// live -- the hooked site is immediately before `call rax`, so it is substituted
+// with noop_job rather than executed.
 inline JobDecision DecideJob(uintptr_t funcPtr, bool probeOk, bool isUd2, uintptr_t cachedOrig) noexcept
 {
-    if (funcPtr == 0 || !probeOk)
+    if (funcPtr == 0)
     {
         return JobDecision{JobAction::LeaveUnchanged, 0, 0};
+    }
+    if (!probeOk)
+    {
+        return JobDecision{JobAction::SubstituteNoop, 0, 0};
     }
     if (isUd2)
     {
@@ -62,6 +71,23 @@ inline JobDecision DecideJob(uintptr_t funcPtr, bool probeOk, bool isUd2, uintpt
         return JobDecision{JobAction::SubstituteNoop, 0, 0};
     }
     return JobDecision{JobAction::RememberOriginal, funcPtr, 0};
+}
+
+// Atomic "replace exactly the corrupt value" for the persistent descriptor slot
+// at `slotAddress` (entry + 8). Returns true only if this call performed the
+// swap; false if the slot was not naturally aligned or already changed. Closes
+// the compare/write TOCTOU: a newer legitimate pointer written concurrently is
+// left untouched.
+inline bool CompareExchangeSlot(uintptr_t slotAddress, uintptr_t expected, uintptr_t desired) noexcept
+{
+    if (slotAddress == 0 || (slotAddress & (sizeof(void*) - 1)) != 0)
+    {
+        return false;
+    }
+    auto* slot = reinterpret_cast<volatile long long*>(slotAddress);
+    const long long previous = _InterlockedCompareExchange64(
+        slot, static_cast<long long>(desired), static_cast<long long>(expected));
+    return static_cast<uintptr_t>(previous) == expected;
 }
 
 // bddisasm memory-operand base register id (NDR_RAX..NDR_R15) that maps to a
