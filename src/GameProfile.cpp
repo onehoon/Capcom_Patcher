@@ -4,9 +4,7 @@
 
 #include "Util.h"
 
-#include <algorithm>
 #include <array>
-#include <cwctype>
 
 namespace game_profile
 {
@@ -14,12 +12,14 @@ namespace
 {
 struct Entry
 {
-    const wchar_t* executable; // lower-case release executable name
+    const wchar_t* executable; // lower-case release executable name (ASCII)
     GameProfile profile;
 };
 
 // Explicit six-game capability matrix (see the architecture plan, section 7,
 // and the PR0 work order, section 4.2). No inheritance from TDB version.
+// This is the single canonical table; both the normal and the loader-lock-safe
+// early resolution paths match against it so they cannot drift.
 constexpr std::array<Entry, 6> kEntries{{
     {L"monsterhunterwilds.exe",
      {GameId::MonsterHunterWilds, L"Monster Hunter Wilds",
@@ -41,27 +41,82 @@ constexpr std::array<Entry, 6> kEntries{{
       true, true, true, false, true}},
 }};
 
-std::wstring ToLower(std::wstring_view value)
+constexpr wchar_t AsciiToLower(wchar_t ch) noexcept
 {
-    std::wstring lowered(value);
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(ch));
-    });
-    return lowered;
+    return (ch >= L'A' && ch <= L'Z') ? static_cast<wchar_t>(ch - L'A' + L'a') : ch;
+}
+
+// Allocation-free, ASCII-only case-insensitive compare. `candidate` is one of
+// the already-lower-case kEntries keys; `name` is the observed file name.
+bool EqualsFold(const wchar_t* name, std::size_t nameLen, const wchar_t* candidate) noexcept
+{
+    std::size_t i = 0;
+    for (; i < nameLen && candidate[i] != L'\0'; ++i)
+    {
+        if (AsciiToLower(name[i]) != candidate[i])
+        {
+            return false;
+        }
+    }
+    return i == nameLen && candidate[i] == L'\0';
+}
+
+GameId ResolveIdNoAlloc(const wchar_t* fileName) noexcept
+{
+    std::size_t len = 0;
+    while (fileName[len] != L'\0')
+    {
+        ++len;
+    }
+
+    for (const auto& entry : kEntries)
+    {
+        if (EqualsFold(fileName, len, entry.executable))
+        {
+            return entry.profile.id;
+        }
+    }
+    return GameId::Unsupported;
+}
+
+const GameProfile& ProfileForId(GameId id) noexcept
+{
+    static constexpr GameProfile kUnsupported{};
+    for (const auto& entry : kEntries)
+    {
+        if (entry.profile.id == id)
+        {
+            return entry.profile;
+        }
+    }
+    return kUnsupported;
 }
 } // namespace
 
 GameProfile Resolve(std::wstring_view executableFileName)
 {
-    const std::wstring name = ToLower(executableFileName);
-    for (const auto& entry : kEntries)
+    return ProfileForId(ResolveIdNoAlloc(std::wstring(executableFileName).c_str()));
+}
+
+GameId ResolveCurrentProcessEarly() noexcept
+{
+    wchar_t path[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(nullptr, path, ARRAYSIZE(path));
+    if (length == 0 || length >= ARRAYSIZE(path))
     {
-        if (name == entry.executable)
+        return GameId::Unsupported;
+    }
+
+    const wchar_t* fileName = path;
+    for (const wchar_t* p = path; *p != L'\0'; ++p)
+    {
+        if (*p == L'\\' || *p == L'/')
         {
-            return entry.profile;
+            fileName = p + 1;
         }
     }
-    return GameProfile{};
+
+    return ResolveIdNoAlloc(fileName);
 }
 
 const GameProfile& Current()

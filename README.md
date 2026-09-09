@@ -27,26 +27,34 @@ scripting, no PAK/mod loader).
 Executable matching is an explicit, case-insensitive allowlist. TDB version is
 never used as an automatic opt-in for future Capcom games.
 
-## What PR0 implements
+## What is implemented
 
-PR0 is the bootstrap slice only:
+- **PR0** — x64 C++20 ASI project (`CapcomPatcher.asi`), explicit six-game
+  detector / profile table, the already-hardened `DbgUiRemoteBreakin` anti-debug
+  watcher ported from `onehoon/OptiPatcher`
+  (`b57408dc6efb7ae62229af028daef8f19caf2f66`), `InitializeASI()` export,
+  `PatchResult()` kept `false`.
+- **PR1** — the common REFramework runtime guards installed before any
+  game-specific patch: pristine `NtProtectVirtualMemory` capture, the
+  `VirtualProtect` / `NtProtectVirtualMemory` integrity guard,
+  `AddVectoredExceptionHandler` registration guard, and `RtlExitUserProcess`
+  guard. Ported from `praydog/REFramework`
+  (`b6baf6b406efc65e077b99cb4d9ad25b0a0a9095`) using vendored MinHook (`98b74f1`).
+  These apply to all six supported games. Note: the exit guard intentionally
+  redirects supported-game process exit to `TerminateProcess`, matching current
+  REFramework.
 
-- x64 C++20 ASI project that builds to `CapcomPatcher.asi`
-- explicit six-game detector / profile table
-- the already-hardened `DbgUiRemoteBreakin` anti-debug watcher, ported from
-  `onehoon/OptiPatcher` (pinned commit `b57408dc6efb7ae62229af028daef8f19caf2f66`)
-- `InitializeASI()` export; `PatchResult()` kept semantically `false`
-
-**PR0 does not provide full REFramework anti-tamper parity.** The remaining
-layers — pristine syscall / VirtualProtect / VEH / exit guards, DD2-family and
-RE9-family bypasses, JobQueue fallback, renderer heartbeat, stack-destroyer
-scan — are deferred to later PRs as described in
+**This does not yet provide full REFramework anti-tamper parity.** The remaining
+layers — DD2-family and RE9-family bypasses, JobQueue fallback, renderer
+heartbeat, stack-destroyer scan, module-path spoofing — are deferred to later
+PRs as described in
 [`doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md`](doc/CAPCOM_PATCHER_ARCHITECTURE_AND_REF_ANTITAMPER_PARITY_PLAN_2026-09-09.md).
 
 ## Build
 
 Open `CapcomPatcher.sln` in Visual Studio 2022 (MSVC v143, Windows 10/11 SDK) and
 build `x64 | Debug` or `x64 | Release`. Output: `CapcomPatcher.asi`.
+MinHook is vendored under `third_party/minhook/`; no submodule init is required.
 
 ## License
 

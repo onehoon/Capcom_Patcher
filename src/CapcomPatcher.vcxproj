@@ -61,6 +61,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -80,6 +81,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\third_party\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -94,7 +96,9 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Util.h" />
     <ClInclude Include="GameProfile.h" />
+    <ClInclude Include="hooking\MinHookInlineHook.h" />
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h" />
+    <ClInclude Include="antitamper\RuntimeGuards.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -104,7 +108,41 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="GameProfile.cpp" />
+    <ClCompile Include="hooking\MinHookInlineHook.cpp" />
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp" />
+    <ClCompile Include="antitamper\RuntimeGuards.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored MinHook (TsudaKageyu/minhook @ 98b74f1). Compiled as C, no PCH,
+         warnings off; see third_party/minhook/PINNED_REVISION.md. -->
+    <ClCompile Include="..\third_party\minhook\src\buffer.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\hook.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\trampoline.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\hde\hde64.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

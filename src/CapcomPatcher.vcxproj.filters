@@ -13,6 +13,15 @@
     <Filter Include="Header Files\antitamper">
       <UniqueIdentifier>{a1b2c3d4-0002-4000-8000-000000000002}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\hooking">
+      <UniqueIdentifier>{a1b2c3d4-0003-4000-8000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\hooking">
+      <UniqueIdentifier>{a1b2c3d4-0004-4000-8000-000000000004}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="third_party\minhook">
+      <UniqueIdentifier>{a1b2c3d4-0005-4000-8000-000000000005}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -27,7 +36,13 @@
     <ClInclude Include="GameProfile.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hooking\MinHookInlineHook.h">
+      <Filter>Header Files\hooking</Filter>
+    </ClInclude>
     <ClInclude Include="antitamper\DbgUiRemoteBreakinWatcher.h">
+      <Filter>Header Files\antitamper</Filter>
+    </ClInclude>
+    <ClInclude Include="antitamper\RuntimeGuards.h">
       <Filter>Header Files\antitamper</Filter>
     </ClInclude>
   </ItemGroup>
@@ -44,8 +59,26 @@
     <ClCompile Include="GameProfile.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="hooking\MinHookInlineHook.cpp">
+      <Filter>Source Files\hooking</Filter>
+    </ClCompile>
     <ClCompile Include="antitamper\DbgUiRemoteBreakinWatcher.cpp">
       <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="antitamper\RuntimeGuards.cpp">
+      <Filter>Source Files\antitamper</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\buffer.c">
+      <Filter>third_party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\hook.c">
+      <Filter>third_party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\trampoline.c">
+      <Filter>third_party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="..\third_party\minhook\src\hde\hde64.c">
+      <Filter>third_party\minhook</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

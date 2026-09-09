@@ -4,6 +4,7 @@
 
 #include "GameProfile.h"
 #include "antitamper/DbgUiRemoteBreakinWatcher.h"
+#include "antitamper/RuntimeGuards.h"
 
 #include <cstdio>
 
@@ -24,10 +25,9 @@ extern "C" __declspec(dllexport) bool PatchResult()
     return false;
 }
 
-// OptiScaler calls this after loading the .asi module. It is the PR0 activation
-// point. Each anti-tamper component owns its own idempotency
-// (antitamper::dbg_ui::Initialize() serializes on a mutex and no-ops once the
-// watcher is running), so this entry point stays a thin dispatcher.
+// OptiScaler calls this after loading the .asi module. It is the post-LoadLibrary
+// dispatcher. Each anti-tamper component owns its own idempotency, so this entry
+// point stays thin and safe to call more than once.
 extern "C" __declspec(dllexport) void InitializeASI()
 {
     const auto& profile = game_profile::Current();
@@ -45,7 +45,11 @@ extern "C" __declspec(dllexport) void InitializeASI()
                 profile.re9SlowPath, profile.heartbeat);
     Log(message);
 
-    // PR0 only executes the DbgUiRemoteBreakin layer. The other capability flags
+    // Common runtime guard (VirtualProtect / NtProtectVirtualMemory integrity)
+    // before the game-memory-touching layers, matching REFramework's order.
+    antitamper::runtime_guards::PostLoadInitialize();
+
+    // PR0/PR1 execute the DbgUiRemoteBreakin layer. The DD2/RE9/heartbeat flags
     // are declarative scaffolding for later PRs.
     if (profile.dbgUiWatcher)
     {
@@ -66,6 +70,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpRese
     {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
+        // Supported games only: install the early guards (pristine syscall
+        // capture, VEH guard, RtlExitUserProcess guard) here to match
+        // REFramework's relative timing. No persistent worker is started here.
+        if (game_profile::ResolveCurrentProcessEarly() != game_profile::GameId::Unsupported)
+        {
+            antitamper::runtime_guards::EarlyInitialize(hModule);
+        }
         break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
