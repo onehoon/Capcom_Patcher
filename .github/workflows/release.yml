@@ -33,8 +33,12 @@ jobs:
         run: |
           $asi = "x64/Release/CapcomPatcher.asi"
           if (-not (Test-Path $asi)) { throw "CapcomPatcher.asi was not produced at $asi" }
-          $dumpbin = Get-ChildItem "C:/Program Files/Microsoft Visual Studio/2022/*/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" |
-                     Select-Object -First 1 -ExpandProperty FullName
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' |
+                     Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found via vswhere" }
+
           $exports = & $dumpbin /nologo /exports $asi
           $names = @($exports |
             Select-String -Pattern '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\w+)' |
