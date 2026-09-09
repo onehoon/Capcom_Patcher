@@ -117,9 +117,10 @@ never used as an automatic opt-in for future Capcom games.
   (`onehoon/OptiScaler@3809b221`) the **OptiScaler proxy DLL is a game-root DLL**
   and therefore in that eligible set, but its disk / `GetModuleFileNameW` / PEB
   identities are consistent and nothing rewrites them; `CapcomPatcher.asi` is
-  normally loaded from a `plugins\` subdirectory, which the upstream rule
-  explicitly skips. Whether any of the six games penalizes a game-root non-game
-  DLL identity is unproven and no runtime observation was possible. Conclusion:
+  normally loaded from a game subdirectory (`<gamedir>\OptiScaler\plugins\` by
+  default), which the upstream rule explicitly skips. Whether any of the six
+  games penalizes a game-root non-game DLL identity is unproven and no runtime
+  observation was possible. Conclusion:
   **`INCONCLUSIVE`** — module-path spoofing stays deferred pending the
   read-only runtime evidence named in
   [`doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md`](doc/analysis/PR7_MODULE_PATH_SPOOFING_CLASSIFICATION_2026-09-09.md).
