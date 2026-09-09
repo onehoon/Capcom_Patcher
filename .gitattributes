@@ -4,3 +4,6 @@ third_party/minhook/**    -text -whitespace
 third_party/bddisasm/**   -text -whitespace
 third_party/safetyhook/** -text -whitespace
 third_party/zydis/**      -text -whitespace
+
+# Workflow files use LF regardless of core.autocrlf.
+.github/**              text eol=lf
